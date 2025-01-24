@@ -1,11 +1,20 @@
-import { FunctionDescription } from "../../types/types";
-import { AstExpression } from "../../ast/ast";
-import { getAllStaticFunctions } from "../../types/resolveDescriptors";
-import { CompilerContext } from "../../context/context";
-import { writeFileSync } from "fs";
+import {FunctionDescription} from "../../types/types";
+import {getAllStaticFunctions} from "../../types/resolveDescriptors";
+import {CompilerContext} from "../../context/context";
+import {writeFileSync} from "fs";
+import {Convertor} from "../../hir/convert";
+import {print} from "../../hir/hir-printer";
+import {HirBlock, HirExpr, HirFunc, HirParam, HirStmt, HirVariable} from "../../hir/hir";
+import {hash} from "../../hir/hir-hash";
+import {replace, traverseStmt} from "../../hir/hir-visitor";
+import {InlinePass} from "../../hir-passes/InlinePass";
+import {cfgToString, buildCfg, generateSvg} from "../../hir/cfg";
 
 export class Generator {
     out: string = "";
+
+    code: string[] = [];
+
     indent: number = 0;
     func: FunctionDescription | null = null;
 
@@ -28,8 +37,10 @@ export class Generator {
     }
 
     write(line: string) {
-        this.writeIdent();
-        this.out += line + "\n";
+        // this.writeIdent();
+        // this.out += line + "\n";
+
+        this.code.push(line + "\n");
     }
 
     header() {
@@ -44,70 +55,180 @@ export class Generator {
     processProgram(ctx: CompilerContext) {
         this.header();
         this.pushIdent();
-        getAllStaticFunctions(ctx).forEach((f) => {
-            this.processFunction(f);
-        });
+        const funcs = getAllStaticFunctions(ctx).map((f) => {
+            return this.processFunction(f);
+        }).filter(n => n !== undefined);
+
+        const pass = new InlinePass(funcs)
+        pass.run()
+
+        funcs.forEach(func => {
+            console.log(print(func.body))
+
+            const cfg = buildCfg(func);
+            console.log(cfgToString(cfg))
+            generateSvg(cfg, "cfg.svg")
+
+            this.generateFunction(func)
+        })
+
         this.popIdent();
         this.footer();
     }
 
-    processFunction(f: FunctionDescription) {
+    generateFunction(f: HirFunc) {
+        this.write(`DECLPROC ${f.name}`);
+        this.write(`${f.name} PROC:<{`);
+
+        this.pushIdent();
+
+        if (f.params.length !== 0) {
+            this.countVars += f.params.length;
+            this.countParams = f.params.length;
+        }
+
+        for (const statement of f.body.stmts) {
+            this.processStatement(statement);
+        }
+
+        this.popIdent();
+
+        this.write(`}>`);
+
         this.countVars = 0;
+    }
+
+    processFunction(f: FunctionDescription): HirFunc | undefined {
+        this.countVars = 0;
+
+        const enabled = false;
 
         if (f.name === "recv_internal" || f.name === "add") {
             this.func = f;
 
-            this.write(`DECLPROC ${f.name}`);
-            this.write(`${f.name} PROC:<{`);
-
-            this.pushIdent();
-
-            if (f.params.length !== 0) {
-                this.countVars += f.params.length;
-                this.countParams = f.params.length;
-            }
+            let result: HirBlock | undefined = undefined;
+            let params: HirParam[] = [];
 
             if (f.ast.kind === "function_def") {
-                f.ast.statements.forEach((statement) => {
-                    if (statement.kind === "statement_expression") {
-                        this.processExpr(statement.expression);
-                    }
+                const conv = new Convertor()
 
-                    if (statement.kind === "statement_let") {
-                        this.processExpr(statement.expression);
-                        this.locals.push(statement.name.text);
-                    }
+                params = f.ast.params.map(p => conv.convertParam(p))
 
-                    if (
-                        statement.kind === "statement_return" &&
-                        statement.expression !== null
-                    ) {
-                        this.processExpr(statement.expression);
+                result = conv.convertBlock({
+                    kind: "statement_block",
+                    statements: f.ast.statements,
+                    loc: f.ast.loc,
+                    id: 0,
+                })
 
-                        if (this.countVars !== 0) {
-                            this.write(`s0 s${this.countVars - 1} XCHG`);
-                            this.write(`${this.countVars - 1} BLKDROP`);
+                if (enabled) {
+                    const vars: Map<number, HirVariable[]> = new Map()
+
+                    for (const stmt of result.stmts) {
+                        if (stmt.kind === "variable") {
+                            const h = hash(stmt.value)
+
+                            if (vars.has(h)) {
+                                const arr = vars.get(h)!
+                                arr.push(stmt)
+                                vars.set(h, arr)
+                            } else {
+                                vars.set(h, [stmt])
+                            }
                         }
                     }
-                });
+
+                    const duplicatedVars = [...vars.values()].filter(it => it.length > 1);
+                    duplicatedVars.forEach(vv => {
+                        console.log(vv.map(v => v.name))
+                    })
+
+                    result.stmts.forEach(v => {
+                        traverseStmt(v, (n, parent) => {
+                            if (n.kind === "identifier") {
+                                const array = duplicatedVars[0]!;
+                                const index = array.findIndex(v => v.name === n.name)
+                                if (index > 0) {
+                                    replace(n, parent as HirExpr, {
+                                        kind: "identifier",
+                                        name: array[0]!.name
+                                    })
+                                }
+                            }
+                        })
+                    })
+
+                    result.stmts = result.stmts.filter(s => {
+                        if (s.kind === "variable") {
+                            const array = duplicatedVars[0]!;
+                            const index = array.findIndex(v => v.name === s.name)
+                            return !(index > 0)
+                        }
+                        return true
+                    })
+                }
             }
 
-            this.popIdent();
+            return {
+                kind: "func",
+                name: f.ast.name.text,
+                params: params,
+                body: result!,
+            };
+        }
 
+        return undefined;
+    }
+
+    processStatement(statement: HirStmt) {
+        if (statement.kind === "expr_stmt") {
+            this.processExpr(statement.expr);
+        }
+
+        if (statement.kind === "variable") {
+            this.processExpr(statement.value);
+            this.locals.push(statement.name);
+        }
+
+        if (statement.kind === "if") {
+            this.processExpr(statement.condition);
+
+            this.write(`IF:<{`);
+            for (const stmt of statement.then.stmts) {
+                this.processStatement(stmt)
+            }
             this.write(`}>`);
 
-            this.countVars = 0;
+            if (statement.else !== undefined) {
+                this.write(`ELSE:<{`);
+                for (const stmt of statement.else.stmts) {
+                    this.processStatement(stmt)
+                }
+                this.write(`}>`);
+            }
+        }
+
+        if (
+            statement.kind === "return" &&
+            statement.expr !== null
+        ) {
+            this.processExpr(statement.expr);
+
+            if (this.countVars !== 0) {
+                this.write(`s0 s${this.countVars - 1} XCHG`);
+                this.write(`${this.countVars - 1} BLKDROP`);
+            }
         }
     }
 
-    processExpr(expr: AstExpression) {
+    processExpr(expr: HirExpr) {
         if (expr.kind === "number") {
             this.write(`${expr.value.toString()} PUSHINT`);
             this.countVars++;
         }
 
-        if (expr.kind === "id" && this.func !== null) {
-            const name = expr.text;
+        if (expr.kind === "identifier" && this.func !== null) {
+            const name = expr.name;
             const paramIndex = this.func.params.findIndex(
                 (p) => p.name.text === name,
             );
@@ -126,22 +247,29 @@ export class Generator {
             }
         }
 
-        if (expr.kind === "op_binary") {
+        if (expr.kind === "binary") {
             this.processExpr(expr.left);
             this.processExpr(expr.right);
 
             if (expr.op === "+") {
+                if (this.code.at(-1) === "s1 PUSH\n" && this.code.at(-2) === "s1 PUSH\n") {
+                    this.code = this.code.slice(0, -2)
+                    // this.countVars -= 1;
+                }
                 this.write("ADD");
             }
             if (expr.op === "*") {
                 this.write("MUL");
             }
+            if (expr.op === "==") {
+                this.write("EQUAL");
+            }
 
             this.countVars--;
         }
 
-        if (expr.kind === "static_call") {
-            if (expr.function.text === "dumpStack") {
+        if (expr.kind === "call") {
+            if (expr.name.name === "dumpStack") {
                 this.write("DUMPSTK");
                 return;
             }
@@ -152,13 +280,14 @@ export class Generator {
                 this.processExpr(arg);
             });
 
-            this.write(`${expr.function.text} INLINECALLDICT`);
+            this.write(`${expr.name.name} INLINECALLDICT`);
             this.countVars = this.countStack.at(-1)!;
             this.countStack.pop();
         }
     }
 
     dumpToFile() {
-        writeFileSync("out.fif", this.out);
+        const code = this.code.join("");
+        writeFileSync("out.fif", code);
     }
 }
