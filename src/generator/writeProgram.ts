@@ -28,6 +28,7 @@ import {
 import { funcInitIdOf } from "./writers/id";
 import { idToHex } from "../utils/idToHex";
 import { trimIndent } from "../utils/text";
+import { Generator } from "./native/Generator";
 
 export async function writeProgram(
     ctx: CompilerContext,
@@ -298,6 +299,10 @@ function writeAll(
     name: string,
     abiLink: string,
 ) {
+    const g = new Generator();
+    g.processProgram(ctx);
+    g.dumpToFile();
+
     // Load all types
     const allTypes = getAllTypes(ctx);
     const contracts = allTypes.filter((v) => v.kind === "contract");
