@@ -6,7 +6,6 @@ export class CommonStatementsExtraction {
     }
 
     private optimizeBlock(block: BasicBlock): void {
-
         if (block.terminator.kind === "conditional") {
             const blocks = block.successors.map(id => this.cfg[id]!);
 
@@ -24,7 +23,7 @@ export class CommonStatementsExtraction {
                 if (!falseBranchStmt) break
 
                 trueHash += hash(trueBranchStmt);
-                falseHash += hash(trueBranchStmt);
+                falseHash += hash(falseBranchStmt);
 
                 if (trueHash !== falseHash) {
                     break
