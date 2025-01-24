@@ -3,7 +3,7 @@ import * as H from "./hir";
 export class HirPrinter {
     private result: string[] = [];
     private indent: number = 0;
-    
+
     private line(text: string) {
         this.result.push("    ".repeat(this.indent) + text);
     }
@@ -31,8 +31,11 @@ export class HirPrinter {
             case "expr_stmt":
                 this.line(this.printExpr(stmt.expr));
                 break;
+            case "assign":
+                this.line(`${this.printExpr(stmt.left)} = ${this.printExpr(stmt.right)}`);
+                break;
             case "variable":
-                this.line(`let ${stmt.name} = ${this.printExpr(stmt.value)}`);
+                this.line(`let ${stmt.name.name} = ${this.printExpr(stmt.value)}`);
                 break;
             case "if":
                 this.line(`if (${this.printExpr(stmt.condition)}) `);
@@ -42,17 +45,20 @@ export class HirPrinter {
                     this.printBlock(stmt.else);
                 }
                 break;
+            case "block": {
+                throw new Error('Not implemented yet: "block" case')
+            }
         }
     }
 
     private printBlock(block: H.HirBlock) {
         this.line("{");
         this.indent++;
-        
+
         for (const stmt of block.stmts) {
             this.printStmt(stmt);
         }
-        
+
         this.indent--;
         this.line("}");
     }
@@ -63,6 +69,11 @@ export class HirPrinter {
 
         if (node.kind === "identifier") {
             return node.name;
+        }
+
+        if (node.kind === "assign") {
+            this.printStmt(node);
+            return this.result.join("\n");
         }
 
         if ("stmts" in node) {

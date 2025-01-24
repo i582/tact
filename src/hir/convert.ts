@@ -92,8 +92,24 @@ export class Convertor {
 
             return {
                 kind: "variable",
-                name: stmt.name.text,
+                name: {
+                    kind: "identifier",
+                    name: stmt.name.text,
+                },
                 value: value,
+            }
+        }
+
+        if (stmt.kind === "statement_assign") {
+            this.parents.push(stmt)
+            const left = this.convertExpression(stmt.path);
+            const right = this.convertExpression(stmt.expression);
+            this.parents.pop()
+
+            return {
+                kind: "assign",
+                left: left,
+                right: right,
             }
         }
 
@@ -173,7 +189,10 @@ export class Convertor {
 
         const newVar = {
             kind: "variable",
-            name: `_${this.variablesCounter}`,
+            name: {
+                kind: "identifier",
+                name: `_${this.variablesCounter}`
+            },
             value: init,
         } as HirVariable
         this.variablesCounter++
@@ -190,7 +209,7 @@ export class Convertor {
 
         return {
             kind: "identifier",
-            name: newVar.name,
+            name: newVar.name.name,
         }
     }
 

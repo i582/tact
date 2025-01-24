@@ -9,6 +9,11 @@ import {hash} from "../../hir/hir-hash";
 import {replace, traverseStmt} from "../../hir/hir-visitor";
 import {InlinePass} from "../../hir-passes/InlinePass";
 import {cfgToString, buildCfg, generateSvg} from "../../hir/cfg";
+import {CommonSubexpressionElimination} from "../../hir/cfg/analysis/cse";
+import {CopyPropagation} from "../../hir/cfg/analysis/copy";
+import {CommonStatementsExtraction} from "../../hir/cfg/analysis/common_stmts";
+import {CfgSimplifier} from "../../hir/cfg/analysis/simplify";
+import {DeadCodeElimination} from "../../hir/cfg/analysis/dce";
 
 export class Generator {
     out: string = "";
@@ -69,6 +74,25 @@ export class Generator {
             console.log(cfgToString(cfg))
             generateSvg(cfg, "cfg.svg")
 
+            const cse = new CommonSubexpressionElimination(cfg);
+            cse.optimize();
+
+            const copyProp = new CopyPropagation(cfg);
+            copyProp.optimize();
+
+            const commonStmts = new CommonStatementsExtraction(cfg);
+            commonStmts.optimize();
+
+            const simplifier = new CfgSimplifier(cfg);
+            simplifier.optimize();
+
+            for (let i = 0; i < 5; i++) {
+                const deadCode = new DeadCodeElimination(cfg);
+                deadCode.optimize();
+            }
+
+            generateSvg(cfg, "cfg_after.svg")
+
             this.generateFunction(func)
         })
 
@@ -103,7 +127,7 @@ export class Generator {
 
         const enabled = false;
 
-        if (f.name === "recv_internal" || f.name === "add") {
+        if (f.name === "recv_internal" || f.name === "add" || f.name === "sub") {
             this.func = f;
 
             let result: HirBlock | undefined = undefined;
@@ -187,7 +211,7 @@ export class Generator {
 
         if (statement.kind === "variable") {
             this.processExpr(statement.value);
-            this.locals.push(statement.name);
+            this.locals.push(statement.name.name);
         }
 
         if (statement.kind === "if") {

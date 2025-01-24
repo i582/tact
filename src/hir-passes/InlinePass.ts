@@ -1,4 +1,4 @@
-import {HirBlock, HirExpr, HirFunc, HirNumber, HirStmt, isStatement} from "../hir/hir";
+import {HirBlock, HirExpr, HirFunc, HirStmt, isStatement} from "../hir/hir";
 import {replace, ReplaceNameVisitor, Visitor, walkStmt} from "../hir/hir-visitor";
 import {hash} from "../hir/hir-hash";
 
@@ -17,14 +17,13 @@ export class InlinePass implements Visitor {
 
     visitExpr(expr: HirExpr): void {
         if (expr.kind === "call") {
-            console.log(expr)
             const func = this.findFunc(expr.name.name)
             if (!func) return
 
             const reverse = this.parents.reverse();
             const stmtIndex = reverse.findIndex(n => isStatement(n.kind));
-            const stmt = reverse[stmtIndex] as HirStmt
-            // if (!stmt) return
+            const stmt = reverse[stmtIndex] as HirStmt | undefined;
+            if (!stmt) return
 
             const block = reverse[stmtIndex + 1] as HirBlock
 
@@ -56,6 +55,7 @@ export class InlinePass implements Visitor {
             block.stmts.splice(index, 0, ...addStmts)
 
             if (returnExpr) {
+                renamer.visitExpr(returnExpr)
                 replace(expr, stmt, returnExpr)
             }
         }

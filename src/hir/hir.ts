@@ -1,11 +1,15 @@
 export type HirExpr = HirIdentifier | HirNumber | HirBinaryOp | HirCall;
-export type HirStmt = HirReturn | HirExprStmt | HirVariable | HirBlock | HirIfStmt;
+export type HirStmt = HirReturn | HirAssign | HirExprStmt | HirVariable | HirBlock | HirIfStmt;
 
 export type HirExprParent = HirExpr | HirStmt | null;
 export type HirStmtParent = HirStmt | null;
 
 export function isStatement(kind: string): boolean {
-    return kind === "return" || kind === "variable" || kind === "expr_stmt" || kind === "block" || kind === "if"
+    return kind === "return" || kind === "variable" || kind === "expr_stmt" || kind === "block" || kind === "if" || kind === "assign"
+}
+
+export function isExpression(kind: string): boolean {
+    return kind === "identifier" || kind === "number" || kind === "binary" || kind === "call"
 }
 
 export type HirIdentifier = {
@@ -33,13 +37,19 @@ export type HirCall = {
 
 export type HirVariable = {
     kind: "variable";
-    name: string;
+    name: HirIdentifier;
     value: HirExpr
 }
 
 export type HirExprStmt = {
     kind: "expr_stmt"
     expr: HirExpr
+}
+
+export type HirAssign = {
+    kind: "assign"
+    left: HirExpr
+    right: HirExpr
 }
 
 export type HirReturn = {

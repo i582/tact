@@ -53,8 +53,15 @@ export function walkStmt<V extends Visitor>(visitor: V, stmt: H.HirStmt): void {
             walkExpr(visitor, stmt.expr)
             visitor.parents.pop();
             return;
+        case "assign":
+            visitor.parents.push(stmt);
+            walkExpr(visitor, stmt.left)
+            walkExpr(visitor, stmt.right)
+            visitor.parents.pop();
+            return;
         case "variable":
             visitor.parents.push(stmt);
+            walkExpr(visitor, stmt.name)
             walkExpr(visitor, stmt.value)
             visitor.parents.pop();
             return;
@@ -178,6 +185,11 @@ export class ReplaceNameVisitor implements Visitor {
     visitExpr(expr: H.HirExpr): void {
         if (expr.kind === "identifier" && this.names.has(expr.name)) {
             Object.assign(expr, this.names.get(expr.name));
+            return;
+        }
+
+        if (expr.kind === "identifier" && expr.name.startsWith("_")) {
+            expr.name = `_${expr.name}`
             return;
         }
     }

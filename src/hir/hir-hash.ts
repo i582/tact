@@ -53,8 +53,12 @@ export class HirHasher {
             case "expr_stmt":
                 this.hashExpr(stmt.expr);
                 break;
+            case "assign":
+                this.hashExpr(stmt.left);
+                this.hashExpr(stmt.right);
+                break;
             case "variable":
-                this.hashString(stmt.name);
+                this.hashString(stmt.name.name);
                 this.hashExpr(stmt.value);
                 break;
             case "block":
