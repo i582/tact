@@ -35,6 +35,9 @@ export class HirHasher {
             case "call":
                 this.hashCall(expr);
                 break;
+            case "phi":
+                this.hashPhi(expr);
+                break;
             default:
                 this.assertNever(expr);
         }
@@ -96,6 +99,12 @@ export class HirHasher {
     private hashCall(node: H.HirCall) {
         this.hashIdentifier(node.name);
         this.combineHash(node.args.length);
+        for (const arg of node.args) {
+            this.hashExpr(arg);
+        }
+    }
+
+    private hashPhi(node: H.HirPhi) {
         for (const arg of node.args) {
             this.hashExpr(arg);
         }

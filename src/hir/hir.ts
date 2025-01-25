@@ -1,11 +1,11 @@
-export type HirExpr = HirIdentifier | HirNumber | HirBinaryOp | HirCall;
+export type HirExpr = HirIdentifier | HirNumber | HirBinaryOp | HirCall | HirPhi;
 export type HirStmt = HirReturn | HirAssign | HirExprStmt | HirVariable | HirBlock | HirIfStmt;
 
 export type HirExprParent = HirExpr | HirStmt | null;
 export type HirStmtParent = HirStmt | null;
 
 export function isStatement(kind: string): boolean {
-    return kind === "return" || kind === "variable" || kind === "expr_stmt" || kind === "block" || kind === "if" || kind === "assign"
+    return kind === "return" || kind === "variable" || kind === "expr_stmt" || kind === "block" || kind === "if" || kind === "assign" || kind === "phi";
 }
 
 export function isExpression(kind: string): boolean {
@@ -79,4 +79,9 @@ export type HirIfStmt = {
     condition: HirExpr
     then: HirBlock
     else?: HirBlock
+}
+
+export interface HirPhi {
+    kind: "phi";
+    args: HirIdentifier[];
 }

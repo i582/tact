@@ -6,11 +6,11 @@ import {Convertor} from "../../hir/convert";
 import {print} from "../../hir/hir-printer";
 import {HirExpr, HirFunc, HirStmt} from "../../hir/hir";
 import {buildCfg, cfgToString, generateSvg} from "../../hir/cfg";
+import {DeadCodeElimination} from "../../hir/cfg/analysis/dce";
+import {SsaConverter} from "../../hir/cfg/ssa";
 import {CommonSubexpressionElimination} from "../../hir/cfg/analysis/cse";
-import {CopyPropagation} from "../../hir/cfg/analysis/copy";
 import {CommonStatementsExtraction} from "../../hir/cfg/analysis/common_stmts";
 import {CfgSimplifier} from "../../hir/cfg/analysis/simplify";
-import {DeadCodeElimination} from "../../hir/cfg/analysis/dce";
 
 type StackEntry = { name: string };
 
@@ -158,16 +158,20 @@ export class Generator {
 
             const cfg = buildCfg(func);
             console.log(cfgToString(cfg))
+            
             generateSvg(cfg, `${func!.name}_cfg.svg`)
 
-            // const ssaConverter = new SsaConverter(cfg);
-            // ssaConverter.convert();
+            const ssaConverter = new SsaConverter(cfg);
+            
+            generateSvg(cfg, `${func!.name}_cfg_dominance.svg`, {
+                showDominanceFrontier: ssaConverter.getDominanceFrontier(),
+                showDominanceTree: ssaConverter.getDominanceTree()
+            });
+            
+            ssaConverter.convert();
 
             const cse = new CommonSubexpressionElimination(cfg);
             cse.optimize();
-
-            const copyProp = new CopyPropagation(cfg);
-            copyProp.optimize();
 
             const commonStmts = new CommonStatementsExtraction(cfg);
             commonStmts.optimize();

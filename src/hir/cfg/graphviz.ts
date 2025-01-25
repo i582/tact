@@ -33,44 +33,109 @@ function blockLabel(blocks: Cfg, id: BlockId): string {
     return escapeLabel(label);
 }
 
-export function generateDot(blocks: Cfg): string {
+export function generateDot(
+    cfg: Cfg, 
+    options: { 
+        showDominanceFrontier?: Map<BlockId, Set<BlockId>>,
+        showDominanceTree?: Map<BlockId, Set<BlockId>> 
+    } = {}
+): string {
     let dot = 'digraph CFG {\n';
     dot += '  node [shape=box, fontname="Courier"]\n';
     dot += '  edge [fontname="Courier"]\n\n';
 
-    for (const id of Object.keys(blocks).map(Number)) {
-        const block = blocks[id]!;
+    // Добавляем легенду
+    dot += '  subgraph cluster_legend {\n';
+    dot += '    label="Legend"\n';
+    dot += '    style=filled\n';
+    dot += '    color=lightgrey\n';
+    dot += '    node [style=filled, fillcolor=white]\n';
+    dot += '    edge [constraint=false]\n\n';
+
+    if (options.showDominanceTree !== undefined || options.showDominanceFrontier !== undefined) {
+        dot += '    legend_start [label="Legend"]\n';
+        dot += '    legend_end [label=""]\n';
+
+        if (options.showDominanceTree) {
+            dot += '    legend_start -> legend_end [color=blue, style=dashed, label="Dominance Tree"]\n';
+        }
+
+        if (options.showDominanceFrontier) {
+            dot += '    legend_start -> legend_end [color=red, style=dotted, label="Dominance Frontier"]\n';
+        }
+    }
+    
+    dot += '  }\n\n';
+
+    dot += '  subgraph cluster_cfg {\n';
+    dot += '    label="Control Flow Graph"\n';
+    dot += '    color=black\n\n';
+
+    for (const id of Object.keys(cfg).map(Number)) {
+        const block = cfg[id]!;
         const style = block.isEntry ?? block.isExit ?
             'style=filled, fillcolor=lightgray' : '';
 
-        dot += `  node_${id} [label="${blockLabel(blocks, id)}" ${style}]\n`;
+        dot += `    node_${id} [label="${blockLabel(cfg, id)}" ${style}]\n`;
     }
 
-    dot += '\n';
-
-    for (const id of Object.keys(blocks).map(Number)) {
-        const block = blocks[id]!;
-
+    for (const id of Object.keys(cfg).map(Number)) {
+        const block = cfg[id]!;
         switch (block.terminator.kind) {
             case "conditional":
-                dot += `  node_${id} -> node_${block.terminator.ifTrue} [label="true"]\n`;
-                dot += `  node_${id} -> node_${block.terminator.ifFalse} [label="false"]\n`;
+                dot += `    node_${id} -> node_${block.terminator.ifTrue} [label="true"]\n`;
+                dot += `    node_${id} -> node_${block.terminator.ifFalse} [label="false"]\n`;
                 break;
             case "unconditional":
-                dot += `  node_${id} -> node_${block.terminator.target}\n`;
+                dot += `    node_${id} -> node_${block.terminator.target}\n`;
                 break;
-            case "return": {
+            case "return":
                 break;
+        }
+    }
+    dot += '  }\n\n';
+
+    if (options.showDominanceTree) {
+        dot += '  subgraph cluster_domtree {\n';
+        dot += '    label="Dominance Tree"\n';
+        dot += '    color=blue\n';
+        dot += '    edge [color=blue, constraint=false]\n\n';
+
+        for (const [dominator, dominated] of options.showDominanceTree) {
+            for (const child of dominated) {
+                dot += `    node_${dominator} -> node_${child} [style=dashed]\n`;
             }
         }
+        dot += '  }\n\n';
+    }
+
+    if (options.showDominanceFrontier) {
+        dot += '  subgraph cluster_domfrontier {\n';
+        dot += '    label="Dominance Frontier"\n';
+        dot += '    color=red\n';
+        dot += '    edge [color=red, constraint=false]\n\n';
+
+        for (const [block, frontier] of options.showDominanceFrontier) {
+            for (const frontierBlock of frontier) {
+                dot += `    node_${block} -> node_${frontierBlock} [style=dotted]\n`;
+            }
+        }
+        dot += '  }\n';
     }
 
     dot += '}\n';
     return dot;
 }
 
-export function generateSvg(cfg: Cfg, outputPath: string): void {
-    const dot = generateDot(cfg);
+export function generateSvg(
+    cfg: Cfg, 
+    outputPath: string,
+    options: { 
+        showDominanceFrontier?: Map<BlockId, Set<BlockId>>,
+        showDominanceTree?: Map<BlockId, Set<BlockId>> 
+    } = {}
+): void {
+    const dot = generateDot(cfg, options);
 
     try {
         execSync(`echo '${dot}' | dot -Tsvg -o ${outputPath}`);

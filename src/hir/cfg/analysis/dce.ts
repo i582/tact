@@ -42,6 +42,9 @@ export class DeadCodeElimination {
                     break;
                 case "number":
                     break;
+                case "phi":
+                    expr.args.forEach(processExpr);
+                    break;
             }
         };
 
@@ -105,6 +108,7 @@ export class DeadCodeElimination {
                 return this.hasEffects(expr.left) || this.hasEffects(expr.right);
             case "identifier":
             case "number":
+            case "phi":
                 return false;
         }
     }

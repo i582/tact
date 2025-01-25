@@ -20,6 +20,10 @@ export class HirPrinter {
                 const args = expr.args.map(arg => this.printExpr(arg)).join(", ");
                 return `${expr.name.name}(${args})`;
             }
+            case "phi": {
+                const args = expr.args.map(arg => this.printExpr(arg)).join(", ");
+                return `phi(${args})`;
+            }
         }
     }
 
