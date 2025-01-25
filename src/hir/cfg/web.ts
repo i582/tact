@@ -1,7 +1,7 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from "fs";
+import * as path from "path";
 
-const svgpanJs = fs.readFileSync(path.join(__dirname, 'svgpan.js')).toString()
+const svgpanJs = fs.readFileSync(path.join(__dirname, "svgpan.js")).toString();
 
 const webAdditionHeader = `
 <script type="text/ecmascript"><![CDATA[
@@ -16,9 +16,9 @@ const webAdditionFooter = `
 export function injectSvgStyles(svgContent: string): string {
     const headerStr = 'xmlns:xlink="http://www.w3.org/1999/xlink">';
     const startGraphData = svgContent.indexOf(headerStr) + headerStr.length;
-    const startSvg = svgContent.indexOf('<svg ') + 5;
-    const startViewBox = svgContent.indexOf(' viewBox');
-    const startEndSvg = svgContent.indexOf('</svg>');
+    const startSvg = svgContent.indexOf("<svg ") + 5;
+    const startViewBox = svgContent.indexOf(" viewBox");
+    const startEndSvg = svgContent.indexOf("</svg>");
 
     if (startSvg === -1 || startViewBox === -1 || startEndSvg === -1) {
         return svgContent;
@@ -36,7 +36,7 @@ export function injectSvgStyles(svgContent: string): string {
 }
 
 export function applySvgStyles(filePath: string): void {
-    const svgContent = fs.readFileSync(filePath, 'utf8');
+    const svgContent = fs.readFileSync(filePath, "utf8");
     const styledSvg = injectSvgStyles(svgContent);
     fs.writeFileSync(filePath, styledSvg);
-} 
+}

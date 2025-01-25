@@ -1,12 +1,11 @@
 import * as H from "../../hir";
-import {Cfg, ENTRY_BLOCK_ID, EXIT_BLOCK_ID} from "../block";
+import { Cfg, ENTRY_BLOCK_ID, EXIT_BLOCK_ID } from "../block";
 
 export class DeadCodeElimination {
     private usedVariables: Set<string> = new Set();
     private definedVariables: Map<string, H.HirStmt> = new Map();
 
-    constructor(private cfg: Cfg) {
-    }
+    constructor(private cfg: Cfg) {}
 
     optimize(): void {
         this.collectDefinitions();
@@ -16,7 +15,8 @@ export class DeadCodeElimination {
 
     private collectDefinitions(): void {
         for (const blockId of Object.keys(this.cfg).map(Number)) {
-            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID) continue;
+            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID)
+                continue;
             const block = this.cfg[blockId]!;
 
             for (const stmt of block.stmts) {
@@ -75,7 +75,8 @@ export class DeadCodeElimination {
         };
 
         for (const blockId of Object.keys(this.cfg).map(Number)) {
-            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID) continue;
+            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID)
+                continue;
             const block = this.cfg[blockId]!;
 
             block.stmts.forEach(processStmt);
@@ -88,14 +89,17 @@ export class DeadCodeElimination {
 
     private removeUnused(): void {
         for (const blockId of Object.keys(this.cfg).map(Number)) {
-            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID) continue;
+            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID)
+                continue;
             const block = this.cfg[blockId]!;
 
-            block.stmts = block.stmts.filter(stmt => {
+            block.stmts = block.stmts.filter((stmt) => {
                 if (stmt.kind !== "variable") return true;
 
                 const name = stmt.name.name;
-                return this.usedVariables.has(name) || this.hasEffects(stmt.value);
+                return (
+                    this.usedVariables.has(name) || this.hasEffects(stmt.value)
+                );
             });
         }
     }
@@ -105,11 +109,13 @@ export class DeadCodeElimination {
             case "call":
                 return true; // for now
             case "binary":
-                return this.hasEffects(expr.left) || this.hasEffects(expr.right);
+                return (
+                    this.hasEffects(expr.left) || this.hasEffects(expr.right)
+                );
             case "identifier":
             case "number":
             case "phi":
                 return false;
         }
     }
-} 
+}

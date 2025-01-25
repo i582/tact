@@ -1,5 +1,12 @@
 import * as H from "../hir";
-import { BlockId, Cfg, createBlock, setTerminator, ENTRY_BLOCK_ID, EXIT_BLOCK_ID } from "./block";
+import {
+    BlockId,
+    Cfg,
+    createBlock,
+    setTerminator,
+    ENTRY_BLOCK_ID,
+    EXIT_BLOCK_ID,
+} from "./block";
 
 export class CfgBuilder {
     private blocks: Cfg = {};
@@ -9,7 +16,7 @@ export class CfgBuilder {
     constructor() {
         this.blocks[ENTRY_BLOCK_ID] = createBlock(ENTRY_BLOCK_ID, true, false);
         this.blocks[EXIT_BLOCK_ID] = createBlock(EXIT_BLOCK_ID, false, true);
-        
+
         this.currentBlockId = ENTRY_BLOCK_ID;
     }
 
@@ -24,7 +31,7 @@ export class CfgBuilder {
             this.blocks[this.currentBlockId]!.stmts.push(stmt);
             setTerminator(this.blocks, this.currentBlockId, {
                 kind: "unconditional",
-                target: EXIT_BLOCK_ID
+                target: EXIT_BLOCK_ID,
             });
             return;
         }
@@ -38,7 +45,7 @@ export class CfgBuilder {
                 kind: "conditional",
                 condition: stmt.condition,
                 ifTrue: thenBlockId,
-                ifFalse: elseBlockId ?? afterBlockId
+                ifFalse: elseBlockId ?? afterBlockId,
             });
 
             this.currentBlockId = thenBlockId;
@@ -47,7 +54,7 @@ export class CfgBuilder {
             }
             setTerminator(this.blocks, this.currentBlockId, {
                 kind: "unconditional",
-                target: afterBlockId
+                target: afterBlockId,
             });
 
             if (elseBlockId !== undefined) {
@@ -57,7 +64,7 @@ export class CfgBuilder {
                 }
                 setTerminator(this.blocks, this.currentBlockId, {
                     kind: "unconditional",
-                    target: afterBlockId
+                    target: afterBlockId,
                 });
             }
 
@@ -71,18 +78,18 @@ export class CfgBuilder {
         const firstBlock = this.createNewBlock();
         setTerminator(this.blocks, ENTRY_BLOCK_ID, {
             kind: "unconditional",
-            target: firstBlock
+            target: firstBlock,
         });
         this.currentBlockId = firstBlock;
 
         for (const stmt of func.body.stmts) {
             this.addStatement(stmt);
         }
-        
+
         if (this.blocks[this.currentBlockId]!.terminator.kind === "return") {
             setTerminator(this.blocks, this.currentBlockId, {
                 kind: "unconditional",
-                target: EXIT_BLOCK_ID
+                target: EXIT_BLOCK_ID,
             });
         }
 
@@ -92,4 +99,4 @@ export class CfgBuilder {
 
 export function buildCfg(func: H.HirFunc): Cfg {
     return new CfgBuilder().build(func);
-} 
+}

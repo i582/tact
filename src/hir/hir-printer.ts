@@ -17,11 +17,15 @@ export class HirPrinter {
             case "binary":
                 return `${this.printExpr(expr.left)} ${expr.op} ${this.printExpr(expr.right)}`;
             case "call": {
-                const args = expr.args.map(arg => this.printExpr(arg)).join(", ");
+                const args = expr.args
+                    .map((arg) => this.printExpr(arg))
+                    .join(", ");
                 return `${expr.name.name}(${args})`;
             }
             case "phi": {
-                const args = expr.args.map(arg => this.printExpr(arg)).join(", ");
+                const args = expr.args
+                    .map((arg) => this.printExpr(arg))
+                    .join(", ");
                 return `phi(${args})`;
             }
         }
@@ -30,16 +34,22 @@ export class HirPrinter {
     private printStmt(stmt: H.HirStmt) {
         switch (stmt.kind) {
             case "return":
-                this.line(`return${stmt.expr ? " " + this.printExpr(stmt.expr) : ""}`);
+                this.line(
+                    `return${stmt.expr ? " " + this.printExpr(stmt.expr) : ""}`,
+                );
                 break;
             case "expr_stmt":
                 this.line(this.printExpr(stmt.expr));
                 break;
             case "assign":
-                this.line(`${this.printExpr(stmt.left)} = ${this.printExpr(stmt.right)}`);
+                this.line(
+                    `${this.printExpr(stmt.left)} = ${this.printExpr(stmt.right)}`,
+                );
                 break;
             case "variable":
-                this.line(`let ${stmt.name.name} = ${this.printExpr(stmt.value)}`);
+                this.line(
+                    `let ${stmt.name.name} = ${this.printExpr(stmt.value)}`,
+                );
                 break;
             case "if":
                 this.line(`if (${this.printExpr(stmt.condition)}) `);
@@ -50,7 +60,7 @@ export class HirPrinter {
                 }
                 break;
             case "block": {
-                throw new Error('Not implemented yet: "block" case')
+                throw new Error('Not implemented yet: "block" case');
             }
         }
     }
@@ -94,4 +104,4 @@ export class HirPrinter {
 
 export function print(node: H.HirExpr | H.HirStmt | H.HirBlock): string {
     return new HirPrinter().print(node);
-} 
+}

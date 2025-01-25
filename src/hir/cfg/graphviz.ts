@@ -1,15 +1,15 @@
 import * as H from "../hir";
-import {Cfg, BlockId} from "./block";
-import {print} from "../hir-printer";
-import {execSync} from "child_process";
-import {applySvgStyles} from './web';
+import { Cfg, BlockId } from "./block";
+import { print } from "../hir-printer";
+import { execSync } from "child_process";
+import { applySvgStyles } from "./web";
 
 function escapeLabel(text: string): string {
-    return text.replace(/"/g, '\\"').replace(/\n/g, '\\n');
+    return text.replace(/"/g, '\\"').replace(/\n/g, "\\n");
 }
 
 function statementsToString(stmts: H.HirStmt[]): string {
-    return stmts.map(stmt => print(stmt)).join('\\n');
+    return stmts.map((stmt) => print(stmt)).join("\\n");
 }
 
 function blockLabel(blocks: Cfg, id: BlockId): string {
@@ -34,47 +34,54 @@ function blockLabel(blocks: Cfg, id: BlockId): string {
 }
 
 export function generateDot(
-    cfg: Cfg, 
-    options: { 
-        showDominanceFrontier?: Map<BlockId, Set<BlockId>>,
-        showDominanceTree?: Map<BlockId, Set<BlockId>> 
-    } = {}
+    cfg: Cfg,
+    options: {
+        showDominanceFrontier?: Map<BlockId, Set<BlockId>>;
+        showDominanceTree?: Map<BlockId, Set<BlockId>>;
+    } = {},
 ): string {
-    let dot = 'digraph CFG {\n';
+    let dot = "digraph CFG {\n";
     dot += '  node [shape=box, fontname="Courier"]\n';
     dot += '  edge [fontname="Courier"]\n\n';
 
     // Добавляем легенду
-    dot += '  subgraph cluster_legend {\n';
+    dot += "  subgraph cluster_legend {\n";
     dot += '    label="Legend"\n';
-    dot += '    style=filled\n';
-    dot += '    color=lightgrey\n';
-    dot += '    node [style=filled, fillcolor=white]\n';
-    dot += '    edge [constraint=false]\n\n';
+    dot += "    style=filled\n";
+    dot += "    color=lightgrey\n";
+    dot += "    node [style=filled, fillcolor=white]\n";
+    dot += "    edge [constraint=false]\n\n";
 
-    if (options.showDominanceTree !== undefined || options.showDominanceFrontier !== undefined) {
+    if (
+        options.showDominanceTree !== undefined ||
+        options.showDominanceFrontier !== undefined
+    ) {
         dot += '    legend_start [label="Legend"]\n';
         dot += '    legend_end [label=""]\n';
 
         if (options.showDominanceTree) {
-            dot += '    legend_start -> legend_end [color=blue, style=dashed, label="Dominance Tree"]\n';
+            dot +=
+                '    legend_start -> legend_end [color=blue, style=dashed, label="Dominance Tree"]\n';
         }
 
         if (options.showDominanceFrontier) {
-            dot += '    legend_start -> legend_end [color=red, style=dotted, label="Dominance Frontier"]\n';
+            dot +=
+                '    legend_start -> legend_end [color=red, style=dotted, label="Dominance Frontier"]\n';
         }
     }
-    
-    dot += '  }\n\n';
 
-    dot += '  subgraph cluster_cfg {\n';
+    dot += "  }\n\n";
+
+    dot += "  subgraph cluster_cfg {\n";
     dot += '    label="Control Flow Graph"\n';
-    dot += '    color=black\n\n';
+    dot += "    color=black\n\n";
 
     for (const id of Object.keys(cfg).map(Number)) {
         const block = cfg[id]!;
-        const style = block.isEntry ?? block.isExit ?
-            'style=filled, fillcolor=lightgray' : '';
+        const style =
+            (block.isEntry ?? block.isExit)
+                ? "style=filled, fillcolor=lightgray"
+                : "";
 
         dot += `    node_${id} [label="${blockLabel(cfg, id)}" ${style}]\n`;
     }
@@ -93,47 +100,47 @@ export function generateDot(
                 break;
         }
     }
-    dot += '  }\n\n';
+    dot += "  }\n\n";
 
     if (options.showDominanceTree) {
-        dot += '  subgraph cluster_domtree {\n';
+        dot += "  subgraph cluster_domtree {\n";
         dot += '    label="Dominance Tree"\n';
-        dot += '    color=blue\n';
-        dot += '    edge [color=blue, constraint=false]\n\n';
+        dot += "    color=blue\n";
+        dot += "    edge [color=blue, constraint=false]\n\n";
 
         for (const [dominator, dominated] of options.showDominanceTree) {
             for (const child of dominated) {
                 dot += `    node_${dominator} -> node_${child} [style=dashed]\n`;
             }
         }
-        dot += '  }\n\n';
+        dot += "  }\n\n";
     }
 
     if (options.showDominanceFrontier) {
-        dot += '  subgraph cluster_domfrontier {\n';
+        dot += "  subgraph cluster_domfrontier {\n";
         dot += '    label="Dominance Frontier"\n';
-        dot += '    color=red\n';
-        dot += '    edge [color=red, constraint=false]\n\n';
+        dot += "    color=red\n";
+        dot += "    edge [color=red, constraint=false]\n\n";
 
         for (const [block, frontier] of options.showDominanceFrontier) {
             for (const frontierBlock of frontier) {
                 dot += `    node_${block} -> node_${frontierBlock} [style=dotted]\n`;
             }
         }
-        dot += '  }\n';
+        dot += "  }\n";
     }
 
-    dot += '}\n';
+    dot += "}\n";
     return dot;
 }
 
 export function generateSvg(
-    cfg: Cfg, 
+    cfg: Cfg,
     outputPath: string,
-    options: { 
-        showDominanceFrontier?: Map<BlockId, Set<BlockId>>,
-        showDominanceTree?: Map<BlockId, Set<BlockId>> 
-    } = {}
+    options: {
+        showDominanceFrontier?: Map<BlockId, Set<BlockId>>;
+        showDominanceTree?: Map<BlockId, Set<BlockId>>;
+    } = {},
 ): void {
     const dot = generateDot(cfg, options);
 
@@ -141,7 +148,7 @@ export function generateSvg(
         execSync(`echo '${dot}' | dot -Tsvg -o ${outputPath}`);
         applySvgStyles(outputPath);
     } catch (error) {
-        console.error('Failed to generate SVG:', error);
+        console.error("Failed to generate SVG:", error);
         throw error;
     }
-} 
+}

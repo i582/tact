@@ -1,5 +1,5 @@
 import * as H from "../../hir";
-import {Cfg, ENTRY_BLOCK_ID, EXIT_BLOCK_ID, BasicBlock} from "../block";
+import { Cfg, ENTRY_BLOCK_ID, EXIT_BLOCK_ID, BasicBlock } from "../block";
 import { hash } from "../../hir-hash";
 
 type ExpressionTable = Record<number, string>;
@@ -15,8 +15,8 @@ export class CommonSubexpressionElimination {
             name: stmt.name,
             value: {
                 kind: "identifier",
-                name: tempVar
-            }
+                name: tempVar,
+            },
         };
     }
 
@@ -25,15 +25,18 @@ export class CommonSubexpressionElimination {
 
         for (let i = 0; i < block.stmts.length; i++) {
             const stmt = block.stmts[i]!;
-            
+
             if (stmt.kind === "variable") {
                 const expr = stmt.value;
-                
+
                 if (H.isExpression(expr.kind)) {
                     const exprHash = hash(expr);
-                    
+
                     if (exprHash in expressionTable) {
-                        block.stmts[i] = this.replaceWithTemp(stmt, expressionTable[exprHash]!);
+                        block.stmts[i] = this.replaceWithTemp(
+                            stmt,
+                            expressionTable[exprHash]!,
+                        );
                     } else {
                         expressionTable[exprHash] = stmt.name.name;
                     }
@@ -44,8 +47,9 @@ export class CommonSubexpressionElimination {
 
     optimize(): void {
         for (const blockId of Object.keys(this.cfg).map(Number)) {
-            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID) continue;
+            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID)
+                continue;
             this.optimizeBlock(this.cfg[blockId]!);
         }
     }
-} 
+}

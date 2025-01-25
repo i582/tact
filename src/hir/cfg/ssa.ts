@@ -1,5 +1,5 @@
 import * as H from "../hir";
-import {BlockId, Cfg, ENTRY_BLOCK_ID, EXIT_BLOCK_ID} from "./block";
+import { BlockId, Cfg, ENTRY_BLOCK_ID, EXIT_BLOCK_ID } from "./block";
 
 type DominanceFrontier = Map<BlockId, Set<BlockId>>;
 type DominanceTree = Map<BlockId, Set<BlockId>>;
@@ -47,14 +47,18 @@ export class SsaConverter {
         };
 
         for (const blockId of Object.keys(this.cfg).map(Number)) {
-            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID) continue;
+            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID)
+                continue;
             const block = this.cfg[blockId]!;
 
             for (const stmt of block.stmts) {
                 if (stmt.kind === "variable") {
                     variables.add(stmt.name.name);
                     processExpr(stmt.value);
-                } else if (stmt.kind === "assign" && stmt.left.kind === "identifier") {
+                } else if (
+                    stmt.kind === "assign" &&
+                    stmt.left.kind === "identifier"
+                ) {
                     variables.add(stmt.left.name);
                     processExpr(stmt.right);
                 } else if (stmt.kind === "return" && stmt.expr) {
@@ -78,12 +82,17 @@ export class SsaConverter {
         const alreadyHasPhiFunc: Set<BlockId> = new Set();
 
         for (const blockId of Object.keys(this.cfg).map(Number)) {
-            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID) continue;
+            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID)
+                continue;
             const block = this.cfg[blockId]!;
 
             for (const stmt of block.stmts) {
-                if ((stmt.kind === "variable" && stmt.name.name === variable) ||
-                    (stmt.kind === "assign" && stmt.left.kind === "identifier" && stmt.left.name === variable)) {
+                if (
+                    (stmt.kind === "variable" && stmt.name.name === variable) ||
+                    (stmt.kind === "assign" &&
+                        stmt.left.kind === "identifier" &&
+                        stmt.left.name === variable)
+                ) {
                     workList.add(blockId);
                     everOnWorkList.add(blockId);
                     break;
@@ -91,7 +100,12 @@ export class SsaConverter {
             }
         }
 
-        this.processWorkList(variable, workList, everOnWorkList, alreadyHasPhiFunc);
+        this.processWorkList(
+            variable,
+            workList,
+            everOnWorkList,
+            alreadyHasPhiFunc,
+        );
         return everOnWorkList;
     }
 
@@ -99,7 +113,7 @@ export class SsaConverter {
         variable: string,
         workList: Set<BlockId>,
         everOnWorkList: Set<BlockId>,
-        alreadyHasPhiFunc: Set<BlockId>
+        alreadyHasPhiFunc: Set<BlockId>,
     ): void {
         while (workList.size > 0) {
             const blockId = workList.values().next().value!;
@@ -109,9 +123,11 @@ export class SsaConverter {
             for (const dfBlockId of frontier) {
                 if (!alreadyHasPhiFunc.has(dfBlockId)) {
                     const block = this.cfg[dfBlockId]!;
-                    const hasPhiForVar = block.stmts.some(stmt =>
-                        stmt.kind === "variable" &&
-                        stmt.name.name.startsWith(`${variable}_phi`));
+                    const hasPhiForVar = block.stmts.some(
+                        (stmt) =>
+                            stmt.kind === "variable" &&
+                            stmt.name.name.startsWith(`${variable}_phi`),
+                    );
 
                     if (!hasPhiForVar) {
                         this.insertPhiFunction(dfBlockId, variable);
@@ -129,22 +145,22 @@ export class SsaConverter {
 
     private insertPhiFunction(blockId: BlockId, variable: string): void {
         const block = this.cfg[blockId]!;
-        
+
         const phiStmt: H.HirStmt = {
             kind: "variable",
             name: {
                 kind: "identifier",
-                name: `${variable}_phi`
+                name: `${variable}_phi`,
             },
             value: {
                 kind: "phi",
-                args: block.predecessors.map(predId => ({
+                args: block.predecessors.map((predId) => ({
                     kind: "identifier",
-                    name: `${variable}__block_${predId}`
-                }))
-            }
+                    name: `${variable}__block_${predId}`,
+                })),
+            },
         };
-        
+
         block.stmts.unshift(phiStmt);
     }
 
@@ -163,8 +179,12 @@ export class SsaConverter {
         visited.add(blockId);
 
         const block = this.cfg[blockId]!;
-        const savedStacks = new Map(Array.from(this.variableStacks.entries())
-            .map(([k, v]) => [k, [...v]]));
+        const savedStacks = new Map(
+            Array.from(this.variableStacks.entries()).map(([k, v]) => [
+                k,
+                [...v],
+            ]),
+        );
 
         for (const stmt of block.stmts) {
             if (stmt.kind === "variable" && stmt.value.kind === "phi") {
@@ -176,10 +196,17 @@ export class SsaConverter {
         for (const stmt of block.stmts) {
             this.replaceUses(stmt);
 
-            if (stmt.kind === "variable" && !stmt.name.name.endsWith("_phi") && !stmt.name.name.startsWith("_")) {
+            if (
+                stmt.kind === "variable" &&
+                !stmt.name.name.endsWith("_phi") &&
+                !stmt.name.name.startsWith("_")
+            ) {
                 const baseName = stmt.name.name.split("_")[0]!;
                 stmt.name.name = this.renameVariable(baseName);
-            } else if (stmt.kind === "assign" && stmt.left.kind === "identifier") {
+            } else if (
+                stmt.kind === "assign" &&
+                stmt.left.kind === "identifier"
+            ) {
                 const baseName = stmt.left.name;
                 const newName = this.renameVariable(baseName);
 
@@ -187,9 +214,9 @@ export class SsaConverter {
                     kind: "variable",
                     name: {
                         kind: "identifier",
-                        name: newName
+                        name: newName,
                     },
-                    value: stmt.right
+                    value: stmt.right,
                 };
             }
         }
@@ -205,7 +232,9 @@ export class SsaConverter {
                     if (arg.name.includes("__block_")) {
                         const baseName = arg.name.split("__block_")[0]!;
                         if (this.variableStacks.has(baseName)) {
-                            arg.name = this.variableStacks.get(baseName)!.at(-1)!;
+                            arg.name = this.variableStacks
+                                .get(baseName)!
+                                .at(-1)!;
                         }
                     }
                 }
@@ -233,18 +262,25 @@ export class SsaConverter {
 
             for (const blockId of blocks) {
                 const block = this.cfg[blockId]!;
-                const processedPreds = block.predecessors
-                    .filter(p => this.idoms.has(p));
+                const processedPreds = block.predecessors.filter((p) =>
+                    this.idoms.has(p),
+                );
 
                 if (processedPreds.length === 0) continue;
 
                 let newIdom = processedPreds[0]!;
 
                 for (let i = 1; i < processedPreds.length; i++) {
-                    newIdom = this.intersectDominators(newIdom, processedPreds[i]!);
+                    newIdom = this.intersectDominators(
+                        newIdom,
+                        processedPreds[i]!,
+                    );
                 }
 
-                if (!this.idoms.has(blockId) || this.idoms.get(blockId) !== newIdom) {
+                if (
+                    !this.idoms.has(blockId) ||
+                    this.idoms.get(blockId) !== newIdom
+                ) {
                     this.idoms.set(blockId, newIdom);
                     changed = true;
                 }
@@ -274,7 +310,8 @@ export class SsaConverter {
         }
 
         for (const blockId of Object.keys(this.cfg).map(Number)) {
-            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID) continue;
+            if (blockId === ENTRY_BLOCK_ID || blockId === EXIT_BLOCK_ID)
+                continue;
             const block = this.cfg[blockId]!;
 
             if (block.predecessors.length >= 2) {
@@ -342,7 +379,10 @@ export class SsaConverter {
         }
     }
 
-    private insertPhiFunctions(variable: string, definitions: Set<BlockId>): void {
+    private insertPhiFunctions(
+        variable: string,
+        definitions: Set<BlockId>,
+    ): void {
         const workList: Set<BlockId> = new Set();
         const everOnWorkList: Set<BlockId> = new Set();
         const alreadyHasPhiFunc: Set<BlockId> = new Set();
@@ -352,7 +392,12 @@ export class SsaConverter {
             everOnWorkList.add(blockId);
         }
 
-        this.processWorkList(variable, workList, everOnWorkList, alreadyHasPhiFunc);
+        this.processWorkList(
+            variable,
+            workList,
+            everOnWorkList,
+            alreadyHasPhiFunc,
+        );
     }
 
     getDominanceFrontier(): Map<BlockId, Set<BlockId>> {
@@ -362,4 +407,4 @@ export class SsaConverter {
     getDominanceTree(): Map<BlockId, Set<BlockId>> {
         return this.dominanceTree;
     }
-} 
+}

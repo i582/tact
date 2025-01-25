@@ -1,6 +1,6 @@
 import * as H from "./hir";
-import {hash} from "./hir-hash";
-import {HirExpr, HirStmt, isStatement} from "./hir";
+import { hash } from "./hir-hash";
+import { HirExpr, HirStmt, isStatement } from "./hir";
 
 export interface Visitor {
     parents: (H.HirExpr | H.HirStmt)[];
@@ -21,14 +21,14 @@ export function walkExpr<V extends Visitor>(visitor: V, expr: H.HirExpr): void {
         case "binary":
             visitor.parents.push(expr);
             walkExpr(visitor, expr.left);
-            walkExpr(visitor, expr.right)
+            walkExpr(visitor, expr.right);
             visitor.parents.pop();
             return;
         case "call":
             visitor.parents.push(expr);
-            walkExpr(visitor, expr.name)
+            walkExpr(visitor, expr.name);
             for (const arg of expr.args) {
-                walkExpr(visitor, arg)
+                walkExpr(visitor, arg);
             }
             visitor.parents.pop();
             return;
@@ -44,32 +44,32 @@ export function walkStmt<V extends Visitor>(visitor: V, stmt: H.HirStmt): void {
         case "return":
             visitor.parents.push(stmt);
             if (stmt.expr !== null) {
-                walkExpr(visitor, stmt.expr)
+                walkExpr(visitor, stmt.expr);
             }
             visitor.parents.pop();
             return;
         case "expr_stmt":
             visitor.parents.push(stmt);
-            walkExpr(visitor, stmt.expr)
+            walkExpr(visitor, stmt.expr);
             visitor.parents.pop();
             return;
         case "assign":
             visitor.parents.push(stmt);
-            walkExpr(visitor, stmt.left)
-            walkExpr(visitor, stmt.right)
+            walkExpr(visitor, stmt.left);
+            walkExpr(visitor, stmt.right);
             visitor.parents.pop();
             return;
         case "variable":
             visitor.parents.push(stmt);
-            walkExpr(visitor, stmt.name)
-            walkExpr(visitor, stmt.value)
+            walkExpr(visitor, stmt.name);
+            walkExpr(visitor, stmt.value);
             visitor.parents.pop();
             return;
         case "block":
             visitor.parents.push(stmt);
-            stmt.stmts.forEach(stmt => {
-                walkStmt(visitor, stmt)
-            })
+            stmt.stmts.forEach((stmt) => {
+                walkStmt(visitor, stmt);
+            });
             visitor.parents.pop();
             return;
         case "if":
@@ -86,7 +86,10 @@ export function walkStmt<V extends Visitor>(visitor: V, stmt: H.HirStmt): void {
     }
 }
 
-export function visitFunc<V extends Visitor>(visitor: V, func: H.HirFunc): void {
+export function visitFunc<V extends Visitor>(
+    visitor: V,
+    func: H.HirFunc,
+): void {
     for (const stmt of func.body.stmts) {
         visitor.visitStmt(stmt);
     }
@@ -104,10 +107,15 @@ class TraverseVisitor implements Visitor {
     public parents: (H.HirExpr | H.HirStmt)[] = [];
 
     constructor(
-        private exprCallback: (expr: H.HirExpr, parent: H.HirExprParent) => void,
-        private stmtCallback?: (stmt: H.HirStmt, parent: H.HirStmtParent) => void
-    ) {
-    }
+        private exprCallback: (
+            expr: H.HirExpr,
+            parent: H.HirExprParent,
+        ) => void,
+        private stmtCallback?: (
+            stmt: H.HirStmt,
+            parent: H.HirStmtParent,
+        ) => void,
+    ) {}
 
     visitExpr(expr: H.HirExpr): void {
         const parent = this.parents[this.parents.length - 1] ?? null;
@@ -115,7 +123,9 @@ class TraverseVisitor implements Visitor {
     }
 
     visitStmt(stmt: H.HirStmt): void {
-        const parent = this.parents[this.parents.length - 1] as H.HirStmt | null;
+        const parent = this.parents[
+            this.parents.length - 1
+        ] as H.HirStmt | null;
         this.stmtCallback?.(stmt, parent);
     }
 }
@@ -125,9 +135,8 @@ class ReplaceVisitor implements Visitor {
 
     constructor(
         private what: H.HirExpr | H.HirStmt,
-        private with_: H.HirExpr | H.HirStmt
-    ) {
-    }
+        private with_: H.HirExpr | H.HirStmt,
+    ) {}
 
     visitExpr(expr: H.HirExpr): void {
         if (!H.isStatement(this.what.kind) && hash(expr) === hash(this.what)) {
@@ -144,15 +153,17 @@ class ReplaceVisitor implements Visitor {
     }
 }
 
-export function traverse(expr: H.HirExpr, callback: (expr: H.HirExpr, parent: H.HirExprParent) => void): void {
+export function traverse(
+    expr: H.HirExpr,
+    callback: (expr: H.HirExpr, parent: H.HirExprParent) => void,
+): void {
     new TraverseVisitor(callback).visitExpr(expr);
 }
 
 export function traverseStmt(
     stmt: H.HirStmt,
     exprCallback: (expr: H.HirExpr, parent: H.HirExprParent) => void,
-    stmtCallback: (stmt: H.HirStmt, parent: H.HirStmtParent) => void = () => {
-    }
+    stmtCallback: (stmt: H.HirStmt, parent: H.HirStmtParent) => void = () => {},
 ): void {
     new TraverseVisitor(exprCallback, stmtCallback).visitStmt(stmt);
 }
@@ -160,10 +171,12 @@ export function traverseStmt(
 export function replace(
     what: H.HirExpr | H.HirStmt,
     where: H.HirExpr | H.HirStmt,
-    with_: H.HirExpr | H.HirStmt
+    with_: H.HirExpr | H.HirStmt,
 ): void {
     if (H.isStatement(what.kind) !== H.isStatement(with_.kind)) {
-        throw new Error("Cannot replace expression with statement or vice versa");
+        throw new Error(
+            "Cannot replace expression with statement or vice versa",
+        );
     }
 
     const visitor = new ReplaceVisitor(what, with_);
@@ -177,10 +190,7 @@ export function replace(
 export class ReplaceNameVisitor implements Visitor {
     public parents: (H.HirExpr | H.HirStmt)[] = [];
 
-    constructor(
-        private names: Map<string, HirExpr>,
-    ) {
-    }
+    constructor(private names: Map<string, HirExpr>) {}
 
     visitExpr(expr: H.HirExpr): void {
         if (expr.kind === "identifier" && this.names.has(expr.name)) {
@@ -189,11 +199,10 @@ export class ReplaceNameVisitor implements Visitor {
         }
 
         if (expr.kind === "identifier" && expr.name.startsWith("_")) {
-            expr.name = `_${expr.name}`
+            expr.name = `_${expr.name}`;
             return;
         }
     }
 
-    visitStmt(_stmt: H.HirStmt): void {
-    }
+    visitStmt(_stmt: H.HirStmt): void {}
 }

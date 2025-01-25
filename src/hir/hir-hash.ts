@@ -4,7 +4,7 @@ export class HirHasher {
     private hash: number = 0;
 
     private combineHash(h: number) {
-        this.hash = ((this.hash << 5) - this.hash) + h;
+        this.hash = (this.hash << 5) - this.hash + h;
         this.hash = this.hash & this.hash;
     }
 

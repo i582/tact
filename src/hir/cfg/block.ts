@@ -1,6 +1,6 @@
 import * as H from "../hir";
-import {print} from "../hir-printer";
-import {colorize} from "./colors";
+import { print } from "../hir-printer";
+import { colorize } from "./colors";
 
 export type BlockId = number;
 
@@ -20,19 +20,28 @@ export interface BasicBlock {
 }
 
 export type Terminator =
-    | { kind: "conditional", condition: H.HirExpr, ifTrue: BlockId, ifFalse: BlockId }
-    | { kind: "unconditional", target: BlockId }
+    | {
+          kind: "conditional";
+          condition: H.HirExpr;
+          ifTrue: BlockId;
+          ifFalse: BlockId;
+      }
+    | { kind: "unconditional"; target: BlockId }
     | { kind: "return" };
 
-export function createBlock(id: BlockId, isEntry = false, isExit = false): BasicBlock {
+export function createBlock(
+    id: BlockId,
+    isEntry = false,
+    isExit = false,
+): BasicBlock {
     return {
         id,
         stmts: [],
         predecessors: [],
         successors: [],
-        terminator: {kind: "return"},
+        terminator: { kind: "return" },
         isEntry,
-        isExit
+        isExit,
     };
 }
 
@@ -44,7 +53,11 @@ export function addSuccessor(blocks: Cfg, fromId: BlockId, toId: BlockId) {
     to.predecessors.push(fromId);
 }
 
-export function setTerminator(blocks: Cfg, blockId: BlockId, terminator: Terminator) {
+export function setTerminator(
+    blocks: Cfg,
+    blockId: BlockId,
+    terminator: Terminator,
+) {
     const block = blocks[blockId]!;
     block.terminator = terminator;
     block.successors = [];
@@ -78,28 +91,38 @@ export function blockToString(blocks: Cfg, block: BasicBlock): string {
 
     switch (block.terminator.kind) {
         case "conditional":
-            result += colorize("  if ", "yellow") +
+            result +=
+                colorize("  if ", "yellow") +
                 `(${print(block.terminator.condition)}) ` +
                 colorize("->", "cyan") +
-                colorize(` Block ${block.terminator.ifTrue}`, "bright") + "\n";
-            result += colorize("  else ", "yellow") +
+                colorize(` Block ${block.terminator.ifTrue}`, "bright") +
+                "\n";
+            result +=
+                colorize("  else ", "yellow") +
                 colorize("->", "cyan") +
-                colorize(` Block ${block.terminator.ifFalse}`, "bright") + "\n";
+                colorize(` Block ${block.terminator.ifFalse}`, "bright") +
+                "\n";
             break;
         case "unconditional":
             result += colorize("  ->", "cyan");
             if (blocks[block.terminator.target]!.isExit) {
-                result += " " + colorize("Exit", "bright") +
-                    colorize(` Block ${block.terminator.target}`, "bright") + "\n";
+                result +=
+                    " " +
+                    colorize("Exit", "bright") +
+                    colorize(` Block ${block.terminator.target}`, "bright") +
+                    "\n";
             } else {
-                result += colorize(` Block ${block.terminator.target}`, "bright") + "\n";
+                result +=
+                    colorize(` Block ${block.terminator.target}`, "bright") +
+                    "\n";
             }
             break;
         case "return":
             if (block.isExit) {
                 const lastStmt = block.stmts[block.stmts.length - 1];
                 if (lastStmt && lastStmt.kind === "return" && lastStmt.expr) {
-                    result += colorize("  return ", "yellow") +
+                    result +=
+                        colorize("  return ", "yellow") +
                         `${print(lastStmt.expr)}\n`;
                 } else {
                     result += colorize("  return", "yellow") + "\n";
@@ -129,4 +152,4 @@ export function cfgToString(blocks: Cfg): string {
     }
 
     return result;
-} 
+}

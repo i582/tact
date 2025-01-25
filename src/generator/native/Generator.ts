@@ -1,45 +1,47 @@
-import {FunctionDescription} from "../../types/types";
-import {getAllStaticFunctions} from "../../types/resolveDescriptors";
-import {CompilerContext} from "../../context/context";
-import {writeFileSync} from "fs";
-import {Convertor} from "../../hir/convert";
-import {print} from "../../hir/hir-printer";
-import {HirExpr, HirFunc, HirStmt} from "../../hir/hir";
-import {buildCfg, cfgToString, generateSvg} from "../../hir/cfg";
-import {DeadCodeElimination} from "../../hir/cfg/analysis/dce";
-import {SsaConverter} from "../../hir/cfg/ssa";
-import {CommonSubexpressionElimination} from "../../hir/cfg/analysis/cse";
-import {CommonStatementsExtraction} from "../../hir/cfg/analysis/common_stmts";
-import {CfgSimplifier} from "../../hir/cfg/analysis/simplify";
-import {optimizer} from "../../hir/optimizer/rules";
+import { FunctionDescription } from "../../types/types";
+import { getAllStaticFunctions } from "../../types/resolveDescriptors";
+import { CompilerContext } from "../../context/context";
+import { writeFileSync } from "fs";
+import { Convertor } from "../../hir/convert";
+import { print } from "../../hir/hir-printer";
+import { HirExpr, HirFunc, HirStmt } from "../../hir/hir";
+import { buildCfg, cfgToString, generateSvg } from "../../hir/cfg";
+import { DeadCodeElimination } from "../../hir/cfg/analysis/dce";
+import { SsaConverter } from "../../hir/cfg/ssa";
+import { CommonSubexpressionElimination } from "../../hir/cfg/analysis/cse";
+import { CommonStatementsExtraction } from "../../hir/cfg/analysis/common_stmts";
+import { CfgSimplifier } from "../../hir/cfg/analysis/simplify";
+import { optimizer } from "../../hir/optimizer/rules";
 
 type StackEntry = { name: string };
 
 const TOP_OF_STACK = 0;
 
 class Stack {
-    values: StackEntry[] = []
+    values: StackEntry[] = [];
 
     push(val: StackEntry) {
         this.values.push(val);
     }
 
     pop(count: number) {
-        if (count === 0) return
+        if (count === 0) return;
 
         if (count > this.values.length)
-            throw new Error(`stack underflow: size: ${this.values.length}, pop count: ${count}`);
+            throw new Error(
+                `stack underflow: size: ${this.values.length}, pop count: ${count}`,
+            );
         this.values = this.values.slice(0, -count);
     }
 
     rot2() {
-        const last = this.values.at(-1)!
+        const last = this.values.at(-1)!;
         this.values[this.values.length - 1] = this.values.at(-2)!;
         this.values[this.values.length - 2] = last;
     }
 
     rev_rot() {
-        const last = this.values.at(-1)!
+        const last = this.values.at(-1)!;
         const prev = this.values.at(-2)!;
         const grand = this.values.at(-3)!;
         this.values[this.values.length - 1] = prev;
@@ -48,8 +50,8 @@ class Stack {
     }
 
     dup() {
-        const last = this.values.at(-1)!
-        this.values.push(last)
+        const last = this.values.at(-1)!;
+        this.values.push(last);
     }
 
     size(): number {
@@ -57,35 +59,35 @@ class Stack {
     }
 
     top(): string {
-        return this.values.at(-1)!.name
+        return this.values.at(-1)!.name;
     }
 
     indexOf(name: string): number {
-        const index = this.values.findIndex(e => e.name === name);
-        if (index === -1) return -1
+        const index = this.values.findIndex((e) => e.name === name);
+        if (index === -1) return -1;
         return this.size() - index - 1;
     }
 
     indexOfExpr(expr: HirExpr): number {
         if (expr.kind !== "identifier") return -1;
-        return this.indexOf(expr.name)
+        return this.indexOf(expr.name);
     }
 
     toString(): string {
-        let result = "[ "
+        let result = "[ ";
 
         for (let i = 0; i < this.values.length; i++) {
-            const index = this.values.length - i - 1
-            result += `${index}: `
-            result += this.values[i]!.name
+            const index = this.values.length - i - 1;
+            result += `${index}: `;
+            result += this.values[i]!.name;
 
             if (i !== this.values.length - 1) {
-                result += `, `
+                result += `, `;
             }
         }
 
-        result += " ]"
-        return result
+        result += " ]";
+        return result;
     }
 }
 
@@ -108,17 +110,17 @@ export class Generator {
 
     pushStack() {
         const prevStack = this.stack;
-        this.stacks.push(this.stack)
-        this.stack = new Stack()
+        this.stacks.push(this.stack);
+        this.stack = new Stack();
 
         prevStack.values.forEach((v) => {
-            this.stack.push(v)
-        })
+            this.stack.push(v);
+        });
     }
 
     popStack() {
-        this.stack = this.stacks.at(-1)!
-        this.stacks.pop()
+        this.stack = this.stacks.at(-1)!;
+        this.stacks.pop();
     }
 
     pushIndent() {
@@ -151,31 +153,33 @@ export class Generator {
 
         this.header();
         this.pushIndent();
-        const funcs = getAllStaticFunctions(ctx).map((f) => {
-            return this.convertFunction(f);
-        }).filter(n => n !== undefined);
+        const funcs = getAllStaticFunctions(ctx)
+            .map((f) => {
+                return this.convertFunction(f);
+            })
+            .filter((n) => n !== undefined);
 
         // const pass = new InlinePass(funcs)
         // pass.run()
 
-        funcs.forEach(func => {
-            console.log(print(func.body))
+        funcs.forEach((func) => {
+            console.log(print(func.body));
 
             const cfg = buildCfg(func);
-            console.log(cfgToString(cfg))
+            console.log(cfgToString(cfg));
 
-            generateSvg(cfg, `${func!.name}_cfg.svg`)
+            generateSvg(cfg, `${func!.name}_cfg.svg`);
 
             const ssaConverter = new SsaConverter(cfg);
 
             generateSvg(cfg, `${func!.name}_cfg_dominance.svg`, {
                 showDominanceFrontier: ssaConverter.getDominanceFrontier(),
-                showDominanceTree: ssaConverter.getDominanceTree()
+                showDominanceTree: ssaConverter.getDominanceTree(),
             });
 
             ssaConverter.convert();
 
-            optimizer.optimizeFunction(func)
+            optimizer.optimizeFunction(func);
 
             const cse = new CommonSubexpressionElimination(cfg);
             cse.optimize();
@@ -191,10 +195,10 @@ export class Generator {
                 deadCode.optimize();
             }
 
-            generateSvg(cfg, `${func!.name}_cfg_after.svg`)
+            generateSvg(cfg, `${func!.name}_cfg_after.svg`);
 
-            this.generateFunction(func)
-        })
+            this.generateFunction(func);
+        });
 
         this.popIdent();
         this.footer();
@@ -205,8 +209,8 @@ export class Generator {
 
         for (const param of f.params) {
             this.stack.push({
-                name: param.name
-            })
+                name: param.name,
+            });
         }
 
         this.write(`DECLPROC ${f.name}`);
@@ -229,7 +233,7 @@ export class Generator {
         if (lastStmt === undefined || lastStmt.kind !== "return") {
             // implicit return
             // clean up stack
-            const toPop = this.stack.size()
+            const toPop = this.stack.size();
             if (toPop > 0) {
                 this.stack.pop(toPop);
                 this.write(`${toPop} BLKDROP`);
@@ -247,7 +251,8 @@ export class Generator {
     convertFunction(f: FunctionDescription): HirFunc | undefined {
         this.countVars = 0;
 
-        if (f.ast.kind === "function_def" &&
+        if (
+            f.ast.kind === "function_def" &&
             (f.name === "recv_internal" ||
                 f.name === "add" ||
                 f.name === "sub" ||
@@ -256,16 +261,16 @@ export class Generator {
         ) {
             this.func = f;
 
-            const conv = new Convertor(this.ctx!)
+            const conv = new Convertor(this.ctx!);
 
-            const params = f.ast.params.map(p => conv.convertParam(p))
+            const params = f.ast.params.map((p) => conv.convertParam(p));
 
             const result = conv.convertBlock({
                 kind: "statement_block",
                 statements: f.ast.statements,
                 loc: f.ast.loc,
                 id: 0,
-            })
+            });
 
             return {
                 kind: "func",
@@ -285,18 +290,19 @@ export class Generator {
 
         if (statement.kind === "variable") {
             this.processExpr(statement.value);
-            if (statement.value.kind === "number") { // TODO: better way
-                this.stack.pop(1)
+            if (statement.value.kind === "number") {
+                // TODO: better way
+                this.stack.pop(1);
             }
-            this.stack.push({name: statement.name.name});
+            this.stack.push({ name: statement.name.name });
         }
 
         if (statement.kind === "assign") {
-            const leftIndex = this.stack.indexOfExpr(statement.left)
-            const rightIndex = this.stack.indexOfExpr(statement.right)
+            const leftIndex = this.stack.indexOfExpr(statement.left);
+            const rightIndex = this.stack.indexOfExpr(statement.right);
             if (leftIndex === 0 && rightIndex === -1) {
-                this.write("DROP")
-                this.stack.pop(1)
+                this.write("DROP");
+                this.stack.pop(1);
                 this.processExpr(statement.right);
             }
 
@@ -306,9 +312,9 @@ export class Generator {
 
         if (statement.kind === "if") {
             const onTop = this.processExpr(statement.condition);
-            this.stack.pop(1)
+            this.stack.pop(1);
 
-            this.pushStack()
+            this.pushStack();
             this.write(`IF:<{`);
 
             this.pushIndent();
@@ -318,39 +324,38 @@ export class Generator {
                     // this.write(`DROP // drop duplicated value for condition`);
                 }
 
-                this.processStatement(stmt)
+                this.processStatement(stmt);
             }
             this.popIdent();
             this.write(`}>`);
-            this.popStack()
+            this.popStack();
 
             if (statement.else !== undefined) {
-                this.pushStack()
+                this.pushStack();
                 this.write(`ELSE:<{`);
                 this.pushIndent();
                 for (const stmt of statement.else.stmts) {
-                    this.processStatement(stmt)
+                    this.processStatement(stmt);
                 }
                 this.popIdent();
                 this.write(`}>`);
-                this.popStack()
+                this.popStack();
             }
         }
 
-        if (
-            statement.kind === "return" &&
-            statement.expr !== null
-        ) {
-            const exprIndex = this.stack.indexOfExpr(statement.expr)
+        if (statement.kind === "return" && statement.expr !== null) {
+            const exprIndex = this.stack.indexOfExpr(statement.expr);
             if (exprIndex === 0) {
                 const size = this.stack.size();
                 if (size === 1) {
                     // nothing to do, value already on the top of the stack
-                    return
+                    return;
                 }
 
-                const countToDrop = size - 1
-                this.write(`${countToDrop} 1 BLKDROP2 // stack before: ${this.stack.toString()}`)
+                const countToDrop = size - 1;
+                this.write(
+                    `${countToDrop} 1 BLKDROP2 // stack before: ${this.stack.toString()}`,
+                );
                 return;
             }
 
@@ -364,12 +369,9 @@ export class Generator {
             this.write(`RET`);
         }
 
-        if (
-            statement.kind === "return" &&
-            statement.expr === null
-        ) {
+        if (statement.kind === "return" && statement.expr === null) {
             // clean up stack
-            const toPop = this.stack.size()
+            const toPop = this.stack.size();
 
             if (toPop > 0) {
                 this.stack.pop(toPop);
@@ -380,27 +382,27 @@ export class Generator {
     }
 
     processNonIdentExpr(expr: HirExpr) {
-        if (expr.kind === "identifier") return
+        if (expr.kind === "identifier") return;
 
         if (expr.kind === "number") {
             this.write(`${expr.value.toString()} PUSHINT`);
-            this.stack.push({name: expr.value.toString()});
+            this.stack.push({ name: expr.value.toString() });
         }
     }
 
     processExpr(expr: HirExpr): boolean {
-        this.processNonIdentExpr(expr)
+        this.processNonIdentExpr(expr);
 
         if (expr.kind === "identifier" && this.func !== null) {
-            const index = this.stack.indexOf(expr.name)
+            const index = this.stack.indexOf(expr.name);
             if (index === TOP_OF_STACK) {
                 // nothing to do, variable already on top of the stack
-                return true
+                return true;
             }
 
             // otherwise push this variable on top of the stack
             this.write(`s${index} PUSH // ${expr.name}`);
-            this.stack.push({name: expr.name});
+            this.stack.push({ name: expr.name });
 
             // const name = expr.name;
             // const paramIndex = this.func.params.findIndex(
@@ -422,89 +424,109 @@ export class Generator {
         }
 
         const binaryOpCommand = (op: string, type: string): string => {
-            if (op === "+") return "ADD"
-            if (op === "*") return "MUL"
-            if (op === "-") return "SUB"
-            if (op === "/") return "DIV"
-            if (op === "==")  {
+            if (op === "+") return "ADD";
+            if (op === "*") return "MUL";
+            if (op === "-") return "SUB";
+            if (op === "/") return "DIV";
+            if (op === "==") {
                 if (type === "Address") {
-                    return "SDEQ"
+                    return "SDEQ";
                 }
-                return "EQUAL"
+                return "EQUAL";
             }
-            if (op === "!=") return "NEQ"
-            if (op === ">") return "GREATER"
-            if (op === "<") return "LESS"
-            if (op === "<=") return "LEQ"
-            if (op === ">=") return "GEQ"
-            return "NOP"
-        }
+            if (op === "!=") return "NEQ";
+            if (op === ">") return "GREATER";
+            if (op === "<") return "LESS";
+            if (op === "<=") return "LEQ";
+            if (op === ">=") return "GEQ";
+            return "NOP";
+        };
 
         const typeOf = (expr: HirExpr): string => {
-            if (expr.kind !== "identifier") return ""
-            if (expr.type.kind === "ref") return expr.type.name
-            return ""
-        }
+            if (expr.kind !== "identifier") return "";
+            if (expr.type.kind === "ref") return expr.type.name;
+            return "";
+        };
 
         if (expr.kind === "binary") {
-            const leftIndex = this.stack.indexOfExpr(expr.left)
-            const rightIndex = this.stack.indexOfExpr(expr.right)
+            const leftIndex = this.stack.indexOfExpr(expr.left);
+            const rightIndex = this.stack.indexOfExpr(expr.right);
 
-            if (expr.op === "+" || expr.op === "*" || expr.op === "==" || expr.op === "!=") {
+            if (
+                expr.op === "+" ||
+                expr.op === "*" ||
+                expr.op === "==" ||
+                expr.op === "!="
+            ) {
                 // if both values already on top of the stack
-                if (leftIndex === 0 && rightIndex === 1 || leftIndex === 1 && rightIndex === 0) {
-                    const op = binaryOpCommand(expr.op, typeOf(expr.left))
+                if (
+                    (leftIndex === 0 && rightIndex === 1) ||
+                    (leftIndex === 1 && rightIndex === 0)
+                ) {
+                    const op = binaryOpCommand(expr.op, typeOf(expr.left));
                     this.write(op);
                     this.stack.pop(2);
-                    return false
+                    return false;
                 }
 
                 // imagine we have [a, b, c] and we want to sum `a` and `b`
                 // then we transform stack to [c, a, b], and sum up [c. res]
-                if (leftIndex === 1 && rightIndex === 2 || leftIndex === 2 && rightIndex === 1) {
+                if (
+                    (leftIndex === 1 && rightIndex === 2) ||
+                    (leftIndex === 2 && rightIndex === 1)
+                ) {
                     this.stack.rev_rot();
                     this.write(`-ROT // -> ${this.stack.toString()}`);
 
-                    const op = binaryOpCommand(expr.op, typeOf(expr.left))
+                    const op = binaryOpCommand(expr.op, typeOf(expr.left));
                     this.write(op);
                     this.stack.pop(2);
-                    return false
+                    return false;
                 }
             }
 
             if (
-                expr.op === "-" || expr.op === "/" ||
-                expr.op === "<" || expr.op === ">" ||
-                expr.op === "<=" || expr.op === ">="
+                expr.op === "-" ||
+                expr.op === "/" ||
+                expr.op === "<" ||
+                expr.op === ">" ||
+                expr.op === "<=" ||
+                expr.op === ">="
             ) {
                 if (leftIndex === 1 && rightIndex === 0) {
-                    const op = expr.op === "-" ? "SUB" : "DIV"
+                    const op = expr.op === "-" ? "SUB" : "DIV";
                     this.write(op);
                     this.stack.pop(2);
-                    return false
+                    return false;
                 }
 
                 // `b - a`, need to rotate
                 if (leftIndex === 0 && rightIndex === 1) {
-                    this.write("SWAP // we need to exchange s[0] and s[1] for correct order");
+                    this.write(
+                        "SWAP // we need to exchange s[0] and s[1] for correct order",
+                    );
                     this.stack.rot2();
 
-                    const op = binaryOpCommand(expr.op, typeOf(expr.left))
+                    const op = binaryOpCommand(expr.op, typeOf(expr.left));
                     this.write(op);
                     this.stack.pop(2);
-                    return false
+                    return false;
                 }
             }
 
             const needDup = this.processExpr(expr.left);
             if (needDup) {
-                this.write(`DUP // duplicate top element (${this.stack.top()}) for binary ${expr.op}`);
+                this.write(
+                    `DUP // duplicate top element (${this.stack.top()}) for binary ${expr.op}`,
+                );
                 this.stack.dup();
             }
 
             const needDup2 = this.processExpr(expr.right);
             if (needDup2) {
-                this.write(`DUP // duplicate top element (${this.stack.top()}) for binary ${expr.op}`);
+                this.write(
+                    `DUP // duplicate top element (${this.stack.top()}) for binary ${expr.op}`,
+                );
                 this.stack.dup();
             }
 
@@ -527,12 +549,12 @@ export class Generator {
         if (expr.kind === "call") {
             if (expr.name.name === "dumpStack") {
                 this.write("DUMPSTK");
-                return false
+                return false;
             }
 
             if (expr.name.name === "sender2") {
                 this.write("NULL");
-                return false
+                return false;
             }
 
             expr.args.forEach((arg) => {
@@ -551,7 +573,7 @@ export class Generator {
             this.stack.pop(expr.args.length);
         }
 
-        return false
+        return false;
     }
 
     dumpToFile() {
