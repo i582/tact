@@ -54,12 +54,14 @@ optimizer.addRule(binary(
     n => n.left
 ));
 
+// x == x = true
 optimizer.addRule(binary(
     n => (n.op === "==" || n.op === "<=") && n.left.kind === "identifier" &&
         n.right.kind === "identifier" && n.left.name === n.right.name,
     _ => ({kind: "number", value: 1n})
 ));
 
+// x != x = false
 optimizer.addRule(binary(
     n => (n.op === "!=" || n.op === "<" || n.op === ">") && n.left.kind === "identifier" &&
         n.right.kind === "identifier" && n.left.name === n.right.name,

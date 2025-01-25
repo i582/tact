@@ -104,6 +104,8 @@ export class Generator {
 
     stacks: Stack[] = [];
 
+    ctx: CompilerContext | null = null;
+
     pushStack() {
         const prevStack = this.stack;
         this.stacks.push(this.stack)
@@ -145,6 +147,8 @@ export class Generator {
     }
 
     processProgram(ctx: CompilerContext) {
+        this.ctx = ctx;
+
         this.header();
         this.pushIndent();
         const funcs = getAllStaticFunctions(ctx).map((f) => {
@@ -252,7 +256,7 @@ export class Generator {
         ) {
             this.func = f;
 
-            const conv = new Convertor()
+            const conv = new Convertor(this.ctx!)
 
             const params = f.ast.params.map(p => conv.convertParam(p))
 
@@ -417,18 +421,29 @@ export class Generator {
             // }
         }
 
-        const binaryOpCommand = (op: string): string => {
+        const binaryOpCommand = (op: string, type: string): string => {
             if (op === "+") return "ADD"
             if (op === "*") return "MUL"
             if (op === "-") return "SUB"
             if (op === "/") return "DIV"
-            if (op === "==") return "EQUAL"
+            if (op === "==")  {
+                if (type === "Address") {
+                    return "SDEQ"
+                }
+                return "EQUAL"
+            }
             if (op === "!=") return "NEQ"
             if (op === ">") return "GREATER"
             if (op === "<") return "LESS"
             if (op === "<=") return "LEQ"
             if (op === ">=") return "GEQ"
             return "NOP"
+        }
+
+        const typeOf = (expr: HirExpr): string => {
+            if (expr.kind !== "identifier") return ""
+            if (expr.type.kind === "ref") return expr.type.name
+            return ""
         }
 
         if (expr.kind === "binary") {
@@ -438,7 +453,7 @@ export class Generator {
             if (expr.op === "+" || expr.op === "*" || expr.op === "==" || expr.op === "!=") {
                 // if both values already on top of the stack
                 if (leftIndex === 0 && rightIndex === 1 || leftIndex === 1 && rightIndex === 0) {
-                    const op = binaryOpCommand(expr.op)
+                    const op = binaryOpCommand(expr.op, typeOf(expr.left))
                     this.write(op);
                     this.stack.pop(2);
                     return false
@@ -450,7 +465,7 @@ export class Generator {
                     this.stack.rev_rot();
                     this.write(`-ROT // -> ${this.stack.toString()}`);
 
-                    const op = binaryOpCommand(expr.op)
+                    const op = binaryOpCommand(expr.op, typeOf(expr.left))
                     this.write(op);
                     this.stack.pop(2);
                     return false
@@ -474,7 +489,7 @@ export class Generator {
                     this.write("SWAP // we need to exchange s[0] and s[1] for correct order");
                     this.stack.rot2();
 
-                    const op = binaryOpCommand(expr.op)
+                    const op = binaryOpCommand(expr.op, typeOf(expr.left))
                     this.write(op);
                     this.stack.pop(2);
                     return false
@@ -512,6 +527,11 @@ export class Generator {
         if (expr.kind === "call") {
             if (expr.name.name === "dumpStack") {
                 this.write("DUMPSTK");
+                return false
+            }
+
+            if (expr.name.name === "sender2") {
+                this.write("NULL");
                 return false
             }
 

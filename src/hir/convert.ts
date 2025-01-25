@@ -1,6 +1,11 @@
 import {AstExpression, AstNode, AstStatement, AstStatementBlock, AstTypedParameter} from "../ast/ast";
 import {HirBinaryOp, HirBlock, HirCall, HirExpr, HirIdentifier, HirParam, HirStmt, HirVariable} from "./hir";
 import {SrcInfo} from "../grammar";
+import {CompilerContext} from "../context/context";
+import * as A from "../ast/ast";
+import {TypeRef} from "../types/types";
+import {store} from "../types/resolveExpression";
+import {throwInternalCompilerError} from "../error/errors";
 
 export class Convertor {
     currentBlock: HirBlock | null = null;
@@ -11,6 +16,17 @@ export class Convertor {
     currentAddedStmts: number = 0;
     parents: AstNode[] = [];
     variablesCounter: number = 0;
+
+    constructor(private ctx: CompilerContext) {
+    }
+
+    getType(expr: A.AstExpression): TypeRef {
+        const r = store.get(this.ctx!, expr.id);
+        if (!r) {
+            throwInternalCompilerError(`Type for ${expr.id} not found`);
+        }
+        return r.description;
+    }
 
     convertParam(param: AstTypedParameter): HirParam {
         return {
@@ -107,11 +123,14 @@ export class Convertor {
             const value = this.convertExpression(stmt.expression);
             this.parents.pop()
 
+            const type = this.getType(stmt.expression)
+
             return {
                 kind: "variable",
                 name: {
                     kind: "identifier",
                     name: stmt.name.text,
+                    type: type,
                 },
                 value: value,
             }
@@ -147,9 +166,11 @@ export class Convertor {
         }
 
         if (expr.kind === "id") {
+            const type = this.getType(expr)
             return {
                 kind: "identifier",
                 name: expr.text,
+                type: type
             }
         }
 
@@ -168,10 +189,14 @@ export class Convertor {
 
             const parent = this.parents.at(-1)
             if (this.isComplexExpr(parent)) {
-                return this.insertVar(newExpr)
+                return this.insertVar(newExpr, expr)
             }
 
             return newExpr
+        }
+
+        if (expr.kind === "op_unary") {
+            return this.convertExpression(expr.operand)
         }
 
         if (expr.kind === "static_call") {
@@ -192,7 +217,7 @@ export class Convertor {
 
             const parent = this.parents.at(-1)
             if (this.isComplexExpr(parent)) {
-                return this.insertVar(newExpr)
+                return this.insertVar(newExpr, expr)
             }
 
             return newExpr
@@ -201,7 +226,7 @@ export class Convertor {
         throw new Error("Unhandled expression kind: " + expr.kind)
     }
 
-    insertVar(init: HirExpr): HirIdentifier {
+    insertVar(init: HirExpr, expr: AstExpression): HirIdentifier {
         if (!this.currentBlock) throw new Error("Unexpected state without block")
 
         const newVar = {
@@ -226,9 +251,12 @@ export class Convertor {
 
         this.currentIdx++
 
+        const type = this.getType(expr)
+
         return {
             kind: "identifier",
             name: newVar.name.name,
+            type: type,
         }
     }
 

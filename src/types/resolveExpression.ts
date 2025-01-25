@@ -26,7 +26,7 @@ import { ensureInt } from "../optimizer/interpreter";
 import { evalConstantExpression } from "../optimizer/constEval";
 import { getAstUtil } from "../ast/util";
 
-const store = createContextStore<{
+export const store = createContextStore<{
     ast: A.AstExpression;
     description: TypeRef;
 }>();

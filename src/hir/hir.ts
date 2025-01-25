@@ -1,3 +1,5 @@
+import {TypeRef} from "../types/types";
+
 export type HirExpr = HirIdentifier | HirNumber | HirBinaryOp | HirCall | HirPhi;
 export type HirStmt = HirReturn | HirAssign | HirExprStmt | HirVariable | HirBlock | HirIfStmt;
 
@@ -17,6 +19,7 @@ export function isExpression(kind: string): boolean {
 export type HirIdentifier = {
     kind: "identifier";
     name: string;
+    type: TypeRef
 };
 
 export type HirNumber = {
