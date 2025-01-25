@@ -5,7 +5,6 @@ import {writeFileSync} from "fs";
 import {Convertor} from "../../hir/convert";
 import {print} from "../../hir/hir-printer";
 import {HirExpr, HirFunc, HirStmt} from "../../hir/hir";
-import {InlinePass} from "../../hir-passes/InlinePass";
 import {buildCfg, cfgToString, generateSvg} from "../../hir/cfg";
 import {CommonSubexpressionElimination} from "../../hir/cfg/analysis/cse";
 import {CopyPropagation} from "../../hir/cfg/analysis/copy";
@@ -97,13 +96,29 @@ export class Generator {
     indent: number = 0;
     func: FunctionDescription | null = null;
 
-    countStack: number[] = [];
     countVars: number = 0;
     countParams: number = 0;
 
     stack: Stack = new Stack();
 
-    pushIdent() {
+    stacks: Stack[] = [];
+
+    pushStack() {
+        const prevStack = this.stack;
+        this.stacks.push(this.stack)
+        this.stack = new Stack()
+
+        prevStack.values.forEach((v) => {
+            this.stack.push(v)
+        })
+    }
+
+    popStack() {
+        this.stack = this.stacks.at(-1)!
+        this.stacks.pop()
+    }
+
+    pushIndent() {
         this.indent += 1;
     }
 
@@ -130,7 +145,7 @@ export class Generator {
 
     processProgram(ctx: CompilerContext) {
         this.header();
-        this.pushIdent();
+        this.pushIndent();
         const funcs = getAllStaticFunctions(ctx).map((f) => {
             return this.convertFunction(f);
         }).filter(n => n !== undefined);
@@ -143,7 +158,7 @@ export class Generator {
 
             const cfg = buildCfg(func);
             console.log(cfgToString(cfg))
-            generateSvg(cfg, "cfg.svg")
+            generateSvg(cfg, `${func!.name}_cfg.svg`)
 
             // const ssaConverter = new SsaConverter(cfg);
             // ssaConverter.convert();
@@ -165,7 +180,7 @@ export class Generator {
                 deadCode.optimize();
             }
 
-            generateSvg(cfg, "cfg_after.svg")
+            generateSvg(cfg, `${func!.name}_cfg_after.svg`)
 
             this.generateFunction(func)
         })
@@ -186,7 +201,7 @@ export class Generator {
         this.write(`DECLPROC ${f.name}`);
         this.write(`${f.name} PROC:<{`);
 
-        this.pushIdent();
+        this.pushIndent();
 
         this.write("// Initial stack: " + this.stack.toString());
 
@@ -204,8 +219,10 @@ export class Generator {
             // implicit return
             // clean up stack
             const toPop = this.stack.size()
-            this.stack.pop(toPop);
-            this.write(`${toPop} BLKDROP`);
+            if (toPop > 0) {
+                this.stack.pop(toPop);
+                this.write(`${toPop} BLKDROP`);
+            }
             this.write(`RET`);
         }
 
@@ -257,26 +274,55 @@ export class Generator {
 
         if (statement.kind === "variable") {
             this.processExpr(statement.value);
+            if (statement.value.kind === "number") { // TODO: better way
+                this.stack.pop(1)
+            }
             this.stack.push({name: statement.name.name});
         }
 
-        if (statement.kind === "if") {
-            this.processExpr(statement.condition);
+        if (statement.kind === "assign") {
+            const leftIndex = this.stack.indexOfExpr(statement.left)
+            const rightIndex = this.stack.indexOfExpr(statement.right)
+            if (leftIndex === 0 && rightIndex === -1) {
+                this.write("DROP")
+                this.stack.pop(1)
+                this.processExpr(statement.right);
+            }
 
+            // this.processExpr(statement.value);
+            // this.stack.push({name: statement.name.name});
+        }
+
+        if (statement.kind === "if") {
+            const onTop = this.processExpr(statement.condition);
+            this.stack.pop(1)
+
+            this.pushStack()
             this.write(`IF:<{`);
-            this.pushIdent();
+
+            this.pushIndent();
             for (const stmt of statement.then.stmts) {
+                if (onTop) {
+                    // this.stack.pop(1)
+                    // this.write(`DROP // drop duplicated value for condition`);
+                }
+
                 this.processStatement(stmt)
             }
             this.popIdent();
             this.write(`}>`);
+            this.popStack()
 
             if (statement.else !== undefined) {
+                this.pushStack()
                 this.write(`ELSE:<{`);
+                this.pushIndent();
                 for (const stmt of statement.else.stmts) {
                     this.processStatement(stmt)
                 }
+                this.popIdent();
                 this.write(`}>`);
+                this.popStack()
             }
         }
 
@@ -298,12 +344,13 @@ export class Generator {
             }
 
             // need to pop this count of expressions
-            if (exprIndex !== -1) {
+            if (exprIndex > 0) {
                 this.write(`${exprIndex} BLKDROP`);
             }
 
             // push things like integer and booleans on the top of the stack
             this.processNonIdentExpr(statement.expr);
+            this.write(`RET`);
         }
 
         if (
@@ -312,8 +359,11 @@ export class Generator {
         ) {
             // clean up stack
             const toPop = this.stack.size()
-            this.stack.pop(toPop);
-            this.write(`${toPop} BLKDROP`);
+
+            if (toPop > 0) {
+                this.stack.pop(toPop);
+                this.write(`${toPop} BLKDROP`);
+            }
             this.write(`RET`);
         }
     }
