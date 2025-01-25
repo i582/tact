@@ -11,6 +11,7 @@ import {SsaConverter} from "../../hir/cfg/ssa";
 import {CommonSubexpressionElimination} from "../../hir/cfg/analysis/cse";
 import {CommonStatementsExtraction} from "../../hir/cfg/analysis/common_stmts";
 import {CfgSimplifier} from "../../hir/cfg/analysis/simplify";
+import {optimizer} from "../../hir/optimizer/rules";
 
 type StackEntry = { name: string };
 
@@ -158,17 +159,19 @@ export class Generator {
 
             const cfg = buildCfg(func);
             console.log(cfgToString(cfg))
-            
+
             generateSvg(cfg, `${func!.name}_cfg.svg`)
 
             const ssaConverter = new SsaConverter(cfg);
-            
+
             generateSvg(cfg, `${func!.name}_cfg_dominance.svg`, {
                 showDominanceFrontier: ssaConverter.getDominanceFrontier(),
                 showDominanceTree: ssaConverter.getDominanceTree()
             });
-            
+
             ssaConverter.convert();
+
+            optimizer.optimizeFunction(func)
 
             const cse = new CommonSubexpressionElimination(cfg);
             cse.optimize();

@@ -4,6 +4,8 @@ export type HirStmt = HirReturn | HirAssign | HirExprStmt | HirVariable | HirBlo
 export type HirExprParent = HirExpr | HirStmt | null;
 export type HirStmtParent = HirStmt | null;
 
+export type BinaryOps = "+" | "-" | "*" | "/" | "==" | "!=" | "<" | "<=" | ">" | ">=";
+
 export function isStatement(kind: string): boolean {
     return kind === "return" || kind === "variable" || kind === "expr_stmt" || kind === "block" || kind === "if" || kind === "assign" || kind === "phi";
 }
@@ -25,7 +27,7 @@ export type HirNumber = {
 export type HirBinaryOp = {
     kind: "binary"
     left: HirExpr
-    op: string
+    op: BinaryOps
     right: HirExpr
 }
 

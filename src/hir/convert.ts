@@ -4,7 +4,11 @@ import {SrcInfo} from "../grammar";
 
 export class Convertor {
     currentBlock: HirBlock | null = null;
+    blocksStack: HirBlock[] = [];
+    currentIdxStack: number[] = [];
+    currentAddedStmtsStack: number[] = [];
     currentIdx: number = 0;
+    currentAddedStmts: number = 0;
     parents: AstNode[] = [];
     variablesCounter: number = 0;
 
@@ -23,14 +27,27 @@ export class Convertor {
             stmts: result
         } as HirBlock;
 
+        this.blocksStack.push(newBlock);
+        this.currentIdxStack.push(this.currentIdx);
+        this.currentAddedStmtsStack.push(this.currentAddedStmts);
         this.currentBlock = newBlock
 
         this.parents.push(block)
         for (let i = 0; i < block.statements.length; i++) {
-            this.currentIdx = i;
+            this.currentIdx = i + this.currentAddedStmts;
             result.push(this.convertStatement(block.statements[i]!));
         }
         this.parents.pop()
+
+        if (this.blocksStack.length > 1) {
+            this.blocksStack.pop()
+            this.currentBlock = this.blocksStack.at(-1) ?? null
+            this.currentIdx = this.currentIdxStack.at(-1) ?? 0
+            this.currentAddedStmts = this.currentAddedStmtsStack.at(-1) ?? 0
+        } else {
+            this.currentBlock = null
+            this.currentIdx = 0
+        }
 
         return newBlock
     }
@@ -199,10 +216,12 @@ export class Convertor {
 
         if (this.currentIdx < this.currentBlock.stmts.length) {
             this.currentBlock.stmts.splice(this.currentIdx, 0, newVar);
+            this.currentAddedStmts++
         }
 
         if (this.currentIdx == this.currentBlock.stmts.length) {
             this.currentBlock.stmts.push(newVar)
+            this.currentAddedStmts++
         }
 
         this.currentIdx++
