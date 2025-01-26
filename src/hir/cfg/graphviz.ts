@@ -3,6 +3,7 @@ import { Cfg, BlockId } from "./block";
 import { print } from "../hir-printer";
 import { execSync } from "child_process";
 import { applySvgStyles } from "./web";
+import { BytecodeEmitter } from "../../generator/native/BytecodeEmitter";
 
 function escapeLabel(text: string): string {
     return text.replace(/"/g, '\\"').replace(/\n/g, "\\n");
@@ -12,7 +13,11 @@ function statementsToString(stmts: H.HirStmt[]): string {
     return stmts.map((stmt) => print(stmt)).join("\\n");
 }
 
-function blockLabel(blocks: Cfg, id: BlockId): string {
+function blockLabel(
+    blocks: Cfg,
+    id: BlockId,
+    showBytecode: boolean = false,
+): string {
     const block = blocks[id]!;
     let label = `Block ${id}`;
 
@@ -22,7 +27,16 @@ function blockLabel(blocks: Cfg, id: BlockId): string {
         label = "Exit " + label;
     }
 
-    if (block.stmts.length > 0) {
+    if (showBytecode) {
+        const emitter = new BytecodeEmitter();
+        label +=
+            "\\n" +
+            block.bytecode
+                .map((op) => {
+                    return emitter.formatOp(op);
+                })
+                .join("\\n");
+    } else if (block.stmts.length > 0) {
         label += `\\n${statementsToString(block.stmts)}`;
     }
 
@@ -38,10 +52,11 @@ export function generateDot(
     options: {
         showDominanceFrontier?: Map<BlockId, Set<BlockId>>;
         showDominanceTree?: Map<BlockId, Set<BlockId>>;
+        showBytecode?: boolean;
     } = {},
 ): string {
     let dot = "digraph CFG {\n";
-    dot += '  node [shape=box, fontname="Courier"]\n';
+    dot += '  node [shape=box, fontname="Courier", align="left"]\n';
     dot += '  edge [fontname="Courier"]\n\n';
 
     // Добавляем легенду
@@ -83,7 +98,7 @@ export function generateDot(
                 ? "style=filled, fillcolor=lightgray"
                 : "";
 
-        dot += `    node_${id} [label="${blockLabel(cfg, id)}" ${style}]\n`;
+        dot += `    node_${id} [label="${blockLabel(cfg, id, options.showBytecode)}", align="left" ${style}]\n`;
     }
 
     for (const id of Object.keys(cfg).map(Number)) {
@@ -140,6 +155,7 @@ export function generateSvg(
     options: {
         showDominanceFrontier?: Map<BlockId, Set<BlockId>>;
         showDominanceTree?: Map<BlockId, Set<BlockId>>;
+        showBytecode?: boolean;
     } = {},
 ): void {
     const dot = generateDot(cfg, options);

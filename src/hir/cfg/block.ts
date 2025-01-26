@@ -18,6 +18,8 @@ export interface BasicBlock {
     terminator: Terminator;
     isEntry?: boolean;
     isExit?: boolean;
+
+    comments: Map<BlockId, string>;
     bytecode: Op[];
 }
 
@@ -44,6 +46,8 @@ export function createBlock(
         terminator: { kind: "return" },
         isEntry,
         isExit,
+        comments: new Map(),
+        bytecode: [],
     };
 }
 
@@ -121,7 +125,7 @@ export function blockToString(blocks: Cfg, block: BasicBlock): string {
             break;
         case "return":
             if (block.isExit) {
-                const lastStmt = block.stmts[block.stmts.length - 1];
+                const lastStmt = block.stmts.at(block.stmts.length - 1);
                 if (lastStmt && lastStmt.kind === "return" && lastStmt.expr) {
                     result +=
                         colorize("  return ", "yellow") +

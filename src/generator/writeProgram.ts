@@ -301,7 +301,6 @@ function writeAll(
 ) {
     const g = new Generator();
     g.processProgram(ctx);
-    g.dumpToFile();
 
     // Load all types
     const allTypes = getAllTypes(ctx);

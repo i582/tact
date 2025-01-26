@@ -1,18 +1,19 @@
-import { FunctionDescription } from "../../types/types";
 import { getAllStaticFunctions } from "../../types/resolveDescriptors";
 import { CompilerContext } from "../../context/context";
-import { writeFileSync } from "fs";
 import { Convertor } from "../../hir/convert";
-import { print } from "../../hir/hir-printer";
 import { HirExpr, HirFunc, HirStmt } from "../../hir/hir";
-import { buildCfg, cfgToString, generateSvg } from "../../hir/cfg";
-import { DeadCodeElimination } from "../../hir/cfg/analysis/dce";
-import { SsaConverter } from "../../hir/cfg/ssa";
+import { BlockId, buildCfg, cfgToString, generateSvg } from "../../hir/cfg";
+import { createOp, Op } from "../../hir/bytecode/bytecode";
+import { BasicBlock, Cfg, ENTRY_BLOCK_ID, EXIT_BLOCK_ID } from "../../hir/cfg";
+import { BytecodeEmitter } from "./BytecodeEmitter";
+import { optimizer } from "../../hir/optimizer/rules";
 import { CommonSubexpressionElimination } from "../../hir/cfg/analysis/cse";
 import { CommonStatementsExtraction } from "../../hir/cfg/analysis/common_stmts";
 import { CfgSimplifier } from "../../hir/cfg/analysis/simplify";
-import { optimizer } from "../../hir/optimizer/rules";
-import { createOp, Op } from "../../hir/bytecode/bytecode";
+import { DeadCodeElimination } from "../../hir/cfg/analysis/dce";
+import { SsaConverter } from "../../hir/cfg/ssa";
+import { print } from "../../hir/hir-printer";
+import { VariableUsageAnalyzer } from "../../hir/cfg/analysis/var_usage";
 
 type StackEntry = { name: string };
 
@@ -102,24 +103,12 @@ class Stack {
 }
 
 export class Generator {
-    out: string = "";
+    private stack: Stack = new Stack();
+    private usages: Map<string, number> = new Map();
+    private stacks: Stack[] = [];
+    private ctx: CompilerContext | null = null;
 
-    code: string[] = [];
-
-    indent: number = 0;
-    func: FunctionDescription | null = null;
-
-    countVars: number = 0;
-    countParams: number = 0;
-
-    stack: Stack = new Stack();
-
-    stacks: Stack[] = [];
-
-    ctx: CompilerContext | null = null;
-
-    private ops: Op[] = [];
-    private comments: Map<number, string> = new Map();
+    private block: BasicBlock | null = null;
 
     pushStack() {
         const prevStack = this.stack;
@@ -136,192 +125,205 @@ export class Generator {
         this.stacks.pop();
     }
 
-    pushIndent() {
-        this.indent += 1;
-    }
-
-    popIdent() {
-        this.indent -= 1;
-    }
-
-    getIdent(): string {
-        return "   ".repeat(this.indent);
-    }
-
-    write(line: string) {
-        this.code.push(this.getIdent() + line + "\n");
-    }
-
-    header() {
-        this.write(`"Asm.fif" include`);
-        this.write(`PROGRAM{`);
-    }
-
-    footer() {
-        this.write(`}END>c`);
-    }
-
     processProgram(ctx: CompilerContext) {
         this.ctx = ctx;
-
-        this.header();
-        this.pushIndent();
         const funcs = getAllStaticFunctions(ctx)
             .map((f) => {
                 const conv = new Convertor(this.ctx!);
                 return conv.convertFunction(f);
             })
-            .filter((n) => n !== undefined);
+            .filter((n) => n !== undefined)
+            .map((func) => {
+                console.log(print(func!.body));
 
-        // const pass = new InlinePass(funcs)
-        // pass.run()
+                const cfg = buildCfg(func);
 
-        funcs.forEach((func) => {
-            console.log(print(func.body));
+                console.log(cfgToString(cfg));
 
-            const cfg = buildCfg(func);
-            console.log(cfgToString(cfg));
+                generateSvg(cfg, `${func!.name}_cfg.svg`);
 
-            generateSvg(cfg, `${func!.name}_cfg.svg`);
+                const ssaConverter = new SsaConverter(cfg);
+                ssaConverter.convert();
 
-            const ssaConverter = new SsaConverter(cfg);
+                generateSvg(cfg, `${func!.name}_cfg_dominance.svg`, {
+                    showDominanceFrontier: ssaConverter.getDominanceFrontier(),
+                    showDominanceTree: ssaConverter.getDominanceTree(),
+                });
 
-            generateSvg(cfg, `${func!.name}_cfg_dominance.svg`, {
-                showDominanceFrontier: ssaConverter.getDominanceFrontier(),
-                showDominanceTree: ssaConverter.getDominanceTree(),
+                const usageAnalyzer = new VariableUsageAnalyzer(cfg);
+                const usages = usageAnalyzer.analyze();
+
+                console.log("Variable usages:");
+                for (const [varName, count] of usages) {
+                    console.log(`  ${varName}: ${count} times`);
+                }
+
+                optimizer.optimizeFunction(func);
+
+                generateSvg(cfg, `${func!.name}_cfg2.svg`);
+
+                const cse = new CommonSubexpressionElimination(cfg);
+                cse.optimize();
+
+                const commonStmts = new CommonStatementsExtraction(cfg);
+                commonStmts.optimize();
+
+                const simplifier = new CfgSimplifier(cfg);
+                simplifier.optimize();
+
+                for (let i = 0; i < 5; i++) {
+                    const deadCode = new DeadCodeElimination(cfg);
+                    deadCode.optimize();
+                }
+
+                generateSvg(cfg, `${func!.name}_cfg_after.svg`);
+
+                this.processFunction(func!, cfg, usages);
+
+                generateSvg(cfg, `${func!.name}_cfg_bytecode.svg`, {
+                    showBytecode: true,
+                });
+
+                return { cfg, name: func!.name };
             });
 
-            ssaConverter.convert();
-
-            optimizer.optimizeFunction(func);
-
-            const cse = new CommonSubexpressionElimination(cfg);
-            cse.optimize();
-
-            const commonStmts = new CommonStatementsExtraction(cfg);
-            commonStmts.optimize();
-
-            const simplifier = new CfgSimplifier(cfg);
-            simplifier.optimize();
-
-            for (let i = 0; i < 5; i++) {
-                const deadCode = new DeadCodeElimination(cfg);
-                deadCode.optimize();
-            }
-
-            generateSvg(cfg, `${func!.name}_cfg_after.svg`);
-
-            this.generateFunction(func);
-        });
-
-        this.popIdent();
-        this.footer();
+        const emitter = new BytecodeEmitter();
+        emitter.emitProgram(funcs);
     }
 
-    generateFunction(f: HirFunc) {
+    private processFunction(f: HirFunc, cfg: Cfg, usages: Map<string, number>) {
         this.stack = new Stack();
+        this.usages = usages;
 
         for (const param of f.params) {
-            this.stack.push({
-                name: param.name,
-            });
+            this.stack.push({ name: param.name });
         }
 
-        this.write(`DECLPROC ${f.name}`);
-        this.write(`${f.name} PROC:<{`);
+        const blockStacks: Map<BlockId, Stack> = new Map();
 
-        this.pushIndent();
+        const worklist: BlockId[] = [];
 
-        this.write("// Initial stack: " + this.stack.toString());
+        const firstBlockId = Object.keys(cfg)
+            .map(Number)
+            .find((id) => id !== ENTRY_BLOCK_ID && id !== EXIT_BLOCK_ID);
 
-        if (f.params.length !== 0) {
-            this.countVars += f.params.length;
-            this.countParams = f.params.length;
-        }
+        if (firstBlockId === undefined) return;
 
-        for (const statement of f.body.stmts) {
-            this.processStatement(statement);
-        }
+        blockStacks.set(firstBlockId, this.stack);
+        worklist.push(firstBlockId);
 
-        const lastStmt = f.body.stmts.at(-1);
-        if (lastStmt === undefined || lastStmt.kind !== "return") {
-            // implicit return
-            // clean up stack
-            const toPop = this.stack.size();
-            if (toPop > 0) {
-                this.emitBulkDrop(toPop);
+        while (worklist.length > 0) {
+            const blockId = worklist.pop()!;
+            const block = cfg[blockId]!;
+
+            if (block.predecessors.length > 1) {
+                const stacks = block.predecessors
+                    .map((predId) => blockStacks.get(predId))
+                    .filter((s): s is Stack => s !== undefined);
+
+                if (stacks.length > 0) {
+                    const minDepth = Math.min(...stacks.map((s) => s.size()));
+                    const mergedStack = new Stack();
+
+                    for (let i = 0; i < minDepth; i++) {
+                        const varName = stacks[0]!.values[i]!.name;
+                        if (
+                            stacks.every((s) => s.values[i]?.name === varName)
+                        ) {
+                            mergedStack.push({ name: varName });
+                        }
+                    }
+
+                    this.stack = mergedStack;
+                }
+            } else {
+                const predStack = block.predecessors
+                    .map((predId) => blockStacks.get(predId))
+                    .find((s) => s !== undefined);
+
+                if (predStack) {
+                    this.stack = new Stack();
+                    predStack.values.forEach((v) => {
+                        this.stack.push(v);
+                    });
+                }
             }
-            this.emitReturn();
+
+            this.generateBlockBytecode(block);
+
+            blockStacks.set(blockId, this.stack);
+
+            for (const nextId of block.successors) {
+                if (nextId === EXIT_BLOCK_ID) continue;
+
+                const nextBlock = cfg[nextId]!;
+                if (
+                    !blockStacks.has(nextId) ||
+                    nextBlock.predecessors.every((predId) =>
+                        blockStacks.has(predId),
+                    )
+                ) {
+                    worklist.push(nextId);
+                }
+            }
         }
-
-        this.popIdent();
-
-        this.write(`}>`);
-
-        this.countVars = 0;
     }
 
-    processStatement(statement: HirStmt) {
-        if (statement.kind === "expr_stmt") {
-            this.processExpr(statement.expr);
+    private generateBlockBytecode(block: BasicBlock) {
+        this.block = block;
+        block.bytecode = [];
+
+        for (const stmt of block.stmts) {
+            this.generateStmtBytecode(stmt);
         }
 
-        if (statement.kind === "variable") {
-            this.processExpr(statement.value);
-            if (statement.value.kind === "number") {
+        if (block.terminator.kind === "return") {
+            block.bytecode.push(createOp.return());
+        }
+
+        if (block.terminator.kind === "conditional") {
+            this.processExpr(block.terminator.condition);
+            this.stack.pop(1);
+        }
+    }
+
+    private generateStmtBytecode(stmt: HirStmt) {
+        if (stmt.kind === "expr_stmt") {
+            this.processExpr(stmt.expr);
+        }
+
+        if (stmt.kind === "variable") {
+            if (stmt.value.kind === "phi") {
+                this.stack.push({ name: stmt.name.name });
+                return;
+            }
+
+            const needDup = this.processExpr(stmt.value);
+
+            // let a = b
+            if (needDup) {
+                // TODO
+                this.emit(createOp.dup());
+            }
+
+            if (stmt.value.kind === "number") {
                 // TODO: better way
                 this.stack.pop(1);
             }
-            this.stack.push({ name: statement.name.name });
+            this.stack.push({ name: stmt.name.name });
         }
 
-        if (statement.kind === "assign") {
-            const leftIndex = this.stack.indexOfExpr(statement.left);
-            const rightIndex = this.stack.indexOfExpr(statement.right);
+        if (stmt.kind === "assign") {
+            const leftIndex = this.stack.indexOfExpr(stmt.left);
+            const rightIndex = this.stack.indexOfExpr(stmt.right);
             if (leftIndex === 0 && rightIndex === -1) {
                 this.emitDrop();
-                this.processExpr(statement.right);
-            }
-
-            // this.processExpr(statement.value);
-            // this.stack.push({name: statement.name.name});
-        }
-
-        if (statement.kind === "if") {
-            const onTop = this.processExpr(statement.condition);
-            this.stack.pop(1);
-
-            this.pushStack();
-            this.write(`IF:<{`);
-
-            this.pushIndent();
-            for (const stmt of statement.then.stmts) {
-                if (onTop) {
-                    // this.stack.pop(1)
-                    // this.write(`DROP // drop duplicated value for condition`);
-                }
-
-                this.processStatement(stmt);
-            }
-            this.popIdent();
-            this.write(`}>`);
-            this.popStack();
-
-            if (statement.else !== undefined) {
-                this.pushStack();
-                this.write(`ELSE:<{`);
-                this.pushIndent();
-                for (const stmt of statement.else.stmts) {
-                    this.processStatement(stmt);
-                }
-                this.popIdent();
-                this.write(`}>`);
-                this.popStack();
+                this.processExpr(stmt.right);
             }
         }
 
-        if (statement.kind === "return" && statement.expr !== null) {
-            const exprIndex = this.stack.indexOfExpr(statement.expr);
+        if (stmt.kind === "return" && stmt.expr !== null) {
+            const exprIndex = this.stack.indexOfExpr(stmt.expr);
             if (exprIndex === 0) {
                 const size = this.stack.size();
                 if (size === 1) {
@@ -341,11 +343,11 @@ export class Generator {
             }
 
             // push things like integer and booleans on the top of the stack
-            this.processNonIdentExpr(statement.expr);
+            this.processNonIdentExpr(stmt.expr);
             this.emitReturn();
         }
 
-        if (statement.kind === "return" && statement.expr === null) {
+        if (stmt.kind === "return" && stmt.expr === null) {
             // clean up stack
             const toPop = this.stack.size();
             if (toPop > 0) {
@@ -366,7 +368,7 @@ export class Generator {
     processExpr(expr: HirExpr): boolean {
         this.processNonIdentExpr(expr);
 
-        if (expr.kind === "identifier" && this.func !== null) {
+        if (expr.kind === "identifier") {
             const index = this.stack.indexOf(expr.name);
             if (index === TOP_OF_STACK) {
                 // nothing to do, variable already on top of the stack
@@ -377,23 +379,35 @@ export class Generator {
             this.loadVariable(index, expr.name);
         }
 
-        const binaryOpCommand = (op: string, type: string): string => {
-            if (op === "+") return "ADD";
-            if (op === "*") return "MUL";
-            if (op === "-") return "SUB";
-            if (op === "/") return "DIV";
-            if (op === "==") {
-                if (type === "Address") {
-                    return "SDEQ";
-                }
-                return "EQUAL";
+        const binaryOpCommand = (op: string, type: string): Op => {
+            switch (op) {
+                case "+":
+                    return createOp.add();
+                case "*":
+                    return createOp.mul();
+                case "-":
+                    return createOp.sub();
+                case "/":
+                    return createOp.div();
+                case "==":
+                    if (type === "Address") {
+                        // TODO: Implement SDEQ operation
+                        return createOp.equal();
+                    }
+                    return createOp.equal();
+                case "!=":
+                    return createOp.notEqual();
+                case ">":
+                    return createOp.greater();
+                case "<":
+                    return createOp.less();
+                case "<=":
+                    return createOp.lessOrEqual();
+                case ">=":
+                    return createOp.greaterOrEqual();
+                default:
+                    throw new Error(`Unknown binary operator: ${op}`);
             }
-            if (op === "!=") return "NEQ";
-            if (op === ">") return "GREATER";
-            if (op === "<") return "LESS";
-            if (op === "<=") return "LEQ";
-            if (op === ">=") return "GEQ";
-            return "NOP";
         };
 
         const typeOf = (expr: HirExpr): string => {
@@ -418,7 +432,8 @@ export class Generator {
                     (leftIndex === 1 && rightIndex === 0)
                 ) {
                     const op = binaryOpCommand(expr.op, typeOf(expr.left));
-                    this.write(op);
+                    this.emit(op);
+                    this.comment(print(expr));
                     this.stack.pop(2);
                     return false;
                 }
@@ -433,7 +448,8 @@ export class Generator {
                     this.comment(`-> ${this.stack.toString()}`);
 
                     const op = binaryOpCommand(expr.op, typeOf(expr.left));
-                    this.write(op);
+                    this.emit(op);
+                    this.comment(print(expr));
                     this.stack.pop(2);
                     return false;
                 }
@@ -448,8 +464,9 @@ export class Generator {
                 expr.op === ">="
             ) {
                 if (leftIndex === 1 && rightIndex === 0) {
-                    const op = expr.op === "-" ? "SUB" : "DIV";
-                    this.write(op);
+                    const op = binaryOpCommand(expr.op, typeOf(expr.left));
+                    this.emit(op);
+                    this.comment(print(expr));
                     this.stack.pop(2);
                     return false;
                 }
@@ -462,22 +479,23 @@ export class Generator {
                     );
 
                     const op = binaryOpCommand(expr.op, typeOf(expr.left));
-                    this.write(op);
+                    this.emit(op);
+                    this.comment(print(expr));
                     this.stack.pop(2);
                     return false;
                 }
             }
 
-            const needDup = this.processExpr(expr.left);
-            if (needDup) {
+            const onTop = this.processExpr(expr.left);
+            if (onTop && this.usedManyTimes(expr.left)) {
                 this.emitDup();
                 this.comment(
                     `// duplicate top element (${this.stack.top()}) for binary ${expr.op}`,
                 );
             }
 
-            const needDup2 = this.processExpr(expr.right);
-            if (needDup2) {
+            const onTop2 = this.processExpr(expr.right);
+            if (onTop2 && this.usedManyTimes(expr.left)) {
                 this.emitDup();
                 this.comment(
                     `// duplicate top element (${this.stack.top()}) for binary ${expr.op}`,
@@ -514,6 +532,8 @@ export class Generator {
             if (expr.op === ">=") {
                 this.emitGreaterOrEqual();
             }
+
+            this.comment(print(expr));
         }
 
         if (expr.kind === "call") {
@@ -546,9 +566,10 @@ export class Generator {
         return false;
     }
 
-    dumpToFile() {
-        const code = this.code.join("");
-        writeFileSync("out.fif", code);
+    private usedManyTimes(expr: HirExpr): boolean {
+        if (expr.kind !== "identifier") return true;
+        const count = this.usages.get(expr.name) ?? 1;
+        return count > 1;
     }
 
     private loadVariable(index: number, name: string): number {
@@ -558,15 +579,14 @@ export class Generator {
     }
 
     private emit(op: Op) {
-        this.write(op.kind);
-        this.ops.push(op);
+        this.block?.bytecode.push(op);
         return op.id;
     }
 
     private comment(text: string) {
         const lastOp = this.getLastOp();
         if (lastOp) {
-            this.comments.set(lastOp.id, text);
+            this.block?.comments.set(lastOp.id, text);
         }
         return this;
     }
@@ -681,12 +701,10 @@ export class Generator {
         return this.emit(createOp.return());
     }
 
-    // Debug
     private emitDumpStack(): number {
         return this.emit(createOp.dumpStack());
     }
 
-    // Value pushing
     private emitPush(value: string): number {
         const id = this.emit(createOp.push(value));
         this.stack.push({ name: value });
@@ -699,34 +717,9 @@ export class Generator {
         return id;
     }
 
-    // Добавим методы для работы с комментариями
-    getComment(opId: number): string | undefined {
-        return this.comments.get(opId);
-    }
-
-    setComment(opId: number, comment: string) {
-        this.comments.set(opId, comment);
-    }
-
-    // Добавим метод для получения операции по ID
-    getOp(id: number): Op | undefined {
-        return this.ops.find((op) => op.id === id);
-    }
-
-    // Добавим метод для получения строкового представления операции с комментарием
-    formatOp(op: Op): string {
-        const comment = this.comments.get(op.id);
-        return comment ? `${op.kind} // ${comment}` : op.kind;
-    }
-
-    // Метод для получения всей последовательности операций
-    getOps(): Op[] {
-        return [...this.ops];
-    }
-
-    // Метод для получения последней операции
     getLastOp(): Op | undefined {
-        return this.ops[this.ops.length - 1];
+        if (!this.block) return undefined;
+        return this.block.bytecode[this.block.bytecode.length - 1];
     }
 
     private emitNull(): number {
