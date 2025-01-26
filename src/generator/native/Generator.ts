@@ -12,6 +12,7 @@ import { CommonSubexpressionElimination } from "../../hir/cfg/analysis/cse";
 import { CommonStatementsExtraction } from "../../hir/cfg/analysis/common_stmts";
 import { CfgSimplifier } from "../../hir/cfg/analysis/simplify";
 import { optimizer } from "../../hir/optimizer/rules";
+import { createOp, Op } from "../../hir/bytecode/bytecode";
 
 type StackEntry = { name: string };
 
@@ -32,6 +33,15 @@ class Stack {
                 `stack underflow: size: ${this.values.length}, pop count: ${count}`,
             );
         this.values = this.values.slice(0, -count);
+    }
+
+    bulkDrop2(count: number, index: number) {
+        // save top N elements
+        const elementsToRemain = this.values.slice(this.values.length - index);
+        // remove COUNT + N elements
+        this.values = this.values.slice(0, this.values.length - count - index);
+        // push top N elements back
+        this.values.push(...elementsToRemain);
     }
 
     rot2() {
@@ -108,6 +118,9 @@ export class Generator {
 
     ctx: CompilerContext | null = null;
 
+    private ops: Op[] = [];
+    private comments: Map<number, string> = new Map();
+
     pushStack() {
         const prevStack = this.stack;
         this.stacks.push(this.stack);
@@ -155,7 +168,8 @@ export class Generator {
         this.pushIndent();
         const funcs = getAllStaticFunctions(ctx)
             .map((f) => {
-                return this.convertFunction(f);
+                const conv = new Convertor(this.ctx!);
+                return conv.convertFunction(f);
             })
             .filter((n) => n !== undefined);
 
@@ -235,10 +249,9 @@ export class Generator {
             // clean up stack
             const toPop = this.stack.size();
             if (toPop > 0) {
-                this.stack.pop(toPop);
-                this.write(`${toPop} BLKDROP`);
+                this.emitBulkDrop(toPop);
             }
-            this.write(`RET`);
+            this.emitReturn();
         }
 
         this.popIdent();
@@ -246,41 +259,6 @@ export class Generator {
         this.write(`}>`);
 
         this.countVars = 0;
-    }
-
-    convertFunction(f: FunctionDescription): HirFunc | undefined {
-        this.countVars = 0;
-
-        if (
-            f.ast.kind === "function_def" &&
-            (f.name === "recv_internal" ||
-                f.name === "add" ||
-                f.name === "sub" ||
-                f.name === "get_value" ||
-                f.name === "some_func")
-        ) {
-            this.func = f;
-
-            const conv = new Convertor(this.ctx!);
-
-            const params = f.ast.params.map((p) => conv.convertParam(p));
-
-            const result = conv.convertBlock({
-                kind: "statement_block",
-                statements: f.ast.statements,
-                loc: f.ast.loc,
-                id: 0,
-            });
-
-            return {
-                kind: "func",
-                name: f.ast.name.text,
-                params: params,
-                body: result!,
-            };
-        }
-
-        return undefined;
     }
 
     processStatement(statement: HirStmt) {
@@ -301,8 +279,7 @@ export class Generator {
             const leftIndex = this.stack.indexOfExpr(statement.left);
             const rightIndex = this.stack.indexOfExpr(statement.right);
             if (leftIndex === 0 && rightIndex === -1) {
-                this.write("DROP");
-                this.stack.pop(1);
+                this.emitDrop();
                 this.processExpr(statement.right);
             }
 
@@ -353,31 +330,28 @@ export class Generator {
                 }
 
                 const countToDrop = size - 1;
-                this.write(
-                    `${countToDrop} 1 BLKDROP2 // stack before: ${this.stack.toString()}`,
-                );
+                this.emitBulkDrop2(countToDrop, 1);
+                this.comment(`stack before: ${this.stack.toString()}`);
                 return;
             }
 
             // need to pop this count of expressions
             if (exprIndex > 0) {
-                this.write(`${exprIndex} BLKDROP`);
+                this.emitBulkDrop(exprIndex);
             }
 
             // push things like integer and booleans on the top of the stack
             this.processNonIdentExpr(statement.expr);
-            this.write(`RET`);
+            this.emitReturn();
         }
 
         if (statement.kind === "return" && statement.expr === null) {
             // clean up stack
             const toPop = this.stack.size();
-
             if (toPop > 0) {
-                this.stack.pop(toPop);
-                this.write(`${toPop} BLKDROP`);
+                this.emitBulkDrop(toPop);
             }
-            this.write(`RET`);
+            this.emitReturn();
         }
     }
 
@@ -385,8 +359,7 @@ export class Generator {
         if (expr.kind === "identifier") return;
 
         if (expr.kind === "number") {
-            this.write(`${expr.value.toString()} PUSHINT`);
-            this.stack.push({ name: expr.value.toString() });
+            this.emitPushInt(expr.value);
         }
     }
 
@@ -401,26 +374,7 @@ export class Generator {
             }
 
             // otherwise push this variable on top of the stack
-            this.write(`s${index} PUSH // ${expr.name}`);
-            this.stack.push({ name: expr.name });
-
-            // const name = expr.name;
-            // const paramIndex = this.func.params.findIndex(
-            //     (p) => p.name.text === name,
-            // );
-            // if (paramIndex !== -1) {
-            //     const idx = this.countVars - paramIndex - 1;
-            //     this.write(`s${idx} PUSH`);
-            //     this.countVars++;
-            //     return;
-            // }
-            //
-            // const localIndex = this.locals.findIndex((p) => p === name);
-            // if (localIndex !== -1) {
-            //     const idx = this.countVars - localIndex - 1 - this.countParams;
-            //     this.write(`s${idx} PUSH`);
-            //     this.countVars++;
-            // }
+            this.loadVariable(index, expr.name);
         }
 
         const binaryOpCommand = (op: string, type: string): string => {
@@ -475,8 +429,8 @@ export class Generator {
                     (leftIndex === 1 && rightIndex === 2) ||
                     (leftIndex === 2 && rightIndex === 1)
                 ) {
-                    this.stack.rev_rot();
-                    this.write(`-ROT // -> ${this.stack.toString()}`);
+                    this.emitRevRot();
+                    this.comment(`-> ${this.stack.toString()}`);
 
                     const op = binaryOpCommand(expr.op, typeOf(expr.left));
                     this.write(op);
@@ -502,10 +456,10 @@ export class Generator {
 
                 // `b - a`, need to rotate
                 if (leftIndex === 0 && rightIndex === 1) {
-                    this.write(
-                        "SWAP // we need to exchange s[0] and s[1] for correct order",
+                    this.emitSwap();
+                    this.comment(
+                        "// we need to exchange s[0] and s[1] for correct order",
                     );
-                    this.stack.rot2();
 
                     const op = binaryOpCommand(expr.op, typeOf(expr.left));
                     this.write(op);
@@ -516,44 +470,60 @@ export class Generator {
 
             const needDup = this.processExpr(expr.left);
             if (needDup) {
-                this.write(
-                    `DUP // duplicate top element (${this.stack.top()}) for binary ${expr.op}`,
+                this.emitDup();
+                this.comment(
+                    `// duplicate top element (${this.stack.top()}) for binary ${expr.op}`,
                 );
-                this.stack.dup();
             }
 
             const needDup2 = this.processExpr(expr.right);
             if (needDup2) {
-                this.write(
-                    `DUP // duplicate top element (${this.stack.top()}) for binary ${expr.op}`,
+                this.emitDup();
+                this.comment(
+                    `// duplicate top element (${this.stack.top()}) for binary ${expr.op}`,
                 );
-                this.stack.dup();
             }
 
             if (expr.op === "+") {
-                this.write("ADD");
+                this.emitAdd();
             }
             if (expr.op === "-") {
-                this.write("SUB");
+                this.emitSub();
             }
             if (expr.op === "*") {
-                this.write("MUL");
+                this.emitMul();
+            }
+            if (expr.op === "/") {
+                this.emitDiv();
             }
             if (expr.op === "==") {
-                this.write("EQUAL");
+                this.emitEqual();
             }
-
-            this.stack.pop(2);
+            if (expr.op === "!=") {
+                this.emitNotEqual();
+            }
+            if (expr.op === "<") {
+                this.emitLess();
+            }
+            if (expr.op === "<=") {
+                this.emitLessOrEqual();
+            }
+            if (expr.op === ">") {
+                this.emitGreater();
+            }
+            if (expr.op === ">=") {
+                this.emitGreaterOrEqual();
+            }
         }
 
         if (expr.kind === "call") {
             if (expr.name.name === "dumpStack") {
-                this.write("DUMPSTK");
+                this.emitDumpStack();
                 return false;
             }
 
             if (expr.name.name === "sender2") {
-                this.write("NULL");
+                this.emitNull();
                 return false;
             }
 
@@ -563,12 +533,12 @@ export class Generator {
                 // if we call function with argument that on top of the stack we need
                 // to duplicate it
                 if (onTop) {
-                    this.write("DUP // duplicate top element for call");
-                    this.stack.dup();
+                    this.emitDup();
+                    this.comment("duplicate top element for call");
                 }
             });
 
-            this.write(`${expr.name.name} INLINECALLDICT`);
+            this.emitInlineCall(expr.name.name);
 
             this.stack.pop(expr.args.length);
         }
@@ -579,5 +549,193 @@ export class Generator {
     dumpToFile() {
         const code = this.code.join("");
         writeFileSync("out.fif", code);
+    }
+
+    private loadVariable(index: number, name: string): number {
+        const id = this.emitPush(`s${index}`);
+        this.comment(name);
+        return id;
+    }
+
+    private emit(op: Op) {
+        this.write(op.kind);
+        this.ops.push(op);
+        return op.id;
+    }
+
+    private comment(text: string) {
+        const lastOp = this.getLastOp();
+        if (lastOp) {
+            this.comments.set(lastOp.id, text);
+        }
+        return this;
+    }
+
+    // Stack manipulation
+    private emitDup(): number {
+        const id = this.emit(createOp.dup());
+        this.stack.dup();
+        return id;
+    }
+
+    private emitRevRot(): number {
+        const id = this.emit(createOp.revRot());
+        this.stack.rev_rot();
+        return id;
+    }
+
+    private emitDrop(): number {
+        const id = this.emit(createOp.drop());
+        this.stack.pop(1);
+        return id;
+    }
+
+    private emitSwap(): number {
+        const id = this.emit(createOp.swap());
+        this.stack.rot2();
+        return id;
+    }
+
+    private emitBulkDrop(count: number): number {
+        const id = this.emit(createOp.bulkDrop(count));
+        this.stack.pop(count);
+        return id;
+    }
+
+    private emitBulkDrop2(count: number, index: number): number {
+        const id = this.emit(createOp.bulkDrop2(count, index));
+        this.stack.bulkDrop2(count, index);
+        return id;
+    }
+
+    // Arithmetic operations
+    private emitAdd(): number {
+        const id = this.emit(createOp.add());
+        this.stack.pop(2);
+        return id;
+    }
+
+    private emitSub(): number {
+        const id = this.emit(createOp.sub());
+        this.stack.pop(2);
+        return id;
+    }
+
+    private emitMul(): number {
+        const id = this.emit(createOp.mul());
+        this.stack.pop(2);
+        return id;
+    }
+
+    private emitDiv(): number {
+        const id = this.emit(createOp.div());
+        this.stack.pop(2);
+        return id;
+    }
+
+    // Comparison operations
+    private emitEqual(): number {
+        const id = this.emit(createOp.equal());
+        this.stack.pop(2);
+        return id;
+    }
+
+    private emitNotEqual(): number {
+        const id = this.emit(createOp.notEqual());
+        this.stack.pop(2);
+        return id;
+    }
+
+    private emitLess(): number {
+        const id = this.emit(createOp.less());
+        this.stack.pop(2);
+        return id;
+    }
+
+    private emitGreater(): number {
+        const id = this.emit(createOp.greater());
+        this.stack.pop(2);
+        return id;
+    }
+
+    private emitLessOrEqual(): number {
+        const id = this.emit(createOp.lessOrEqual());
+        this.stack.pop(2);
+        return id;
+    }
+
+    private emitGreaterOrEqual(): number {
+        const id = this.emit(createOp.greaterOrEqual());
+        this.stack.pop(2);
+        return id;
+    }
+
+    // Control flow
+    private emitCall(func: string, argCount: number): number {
+        const id = this.emit(createOp.call(func));
+        this.stack.pop(argCount);
+        return id;
+    }
+
+    private emitReturn(): number {
+        return this.emit(createOp.return());
+    }
+
+    // Debug
+    private emitDumpStack(): number {
+        return this.emit(createOp.dumpStack());
+    }
+
+    // Value pushing
+    private emitPush(value: string): number {
+        const id = this.emit(createOp.push(value));
+        this.stack.push({ name: value });
+        return id;
+    }
+
+    private emitPushInt(value: bigint): number {
+        const id = this.emit(createOp.pushInt(value));
+        this.stack.push({ name: value.toString() });
+        return id;
+    }
+
+    // Добавим методы для работы с комментариями
+    getComment(opId: number): string | undefined {
+        return this.comments.get(opId);
+    }
+
+    setComment(opId: number, comment: string) {
+        this.comments.set(opId, comment);
+    }
+
+    // Добавим метод для получения операции по ID
+    getOp(id: number): Op | undefined {
+        return this.ops.find((op) => op.id === id);
+    }
+
+    // Добавим метод для получения строкового представления операции с комментарием
+    formatOp(op: Op): string {
+        const comment = this.comments.get(op.id);
+        return comment ? `${op.kind} // ${comment}` : op.kind;
+    }
+
+    // Метод для получения всей последовательности операций
+    getOps(): Op[] {
+        return [...this.ops];
+    }
+
+    // Метод для получения последней операции
+    getLastOp(): Op | undefined {
+        return this.ops[this.ops.length - 1];
+    }
+
+    private emitNull(): number {
+        const id = this.emit(createOp.null());
+        this.stack.push({ name: "null" });
+        return id;
+    }
+
+    private emitInlineCall(func: string): number {
+        return this.emit(createOp.inlineCall(func));
     }
 }

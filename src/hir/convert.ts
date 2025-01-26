@@ -10,6 +10,7 @@ import {
     HirBlock,
     HirCall,
     HirExpr,
+    HirFunc,
     HirIdentifier,
     HirParam,
     HirStmt,
@@ -18,7 +19,7 @@ import {
 import { SrcInfo } from "../grammar";
 import { CompilerContext } from "../context/context";
 import * as A from "../ast/ast";
-import { TypeRef } from "../types/types";
+import { FunctionDescription, TypeRef } from "../types/types";
 import { store } from "../types/resolveExpression";
 import { throwInternalCompilerError } from "../error/errors";
 
@@ -47,6 +48,35 @@ export class Convertor {
             kind: "param",
             name: param.name.text,
         };
+    }
+
+    convertFunction(f: FunctionDescription): HirFunc | undefined {
+        if (
+            f.ast.kind === "function_def" &&
+            (f.name === "recv_internal" ||
+                f.name === "add" ||
+                f.name === "sub" ||
+                f.name === "get_value" ||
+                f.name === "some_func")
+        ) {
+            const params = f.ast.params.map((p) => this.convertParam(p));
+
+            const result = this.convertBlock({
+                kind: "statement_block",
+                statements: f.ast.statements,
+                loc: f.ast.loc,
+                id: 0,
+            });
+
+            return {
+                kind: "func",
+                name: f.ast.name.text,
+                params: params,
+                body: result!,
+            };
+        }
+
+        return undefined;
     }
 
     convertBlock(block: AstStatementBlock): HirBlock {

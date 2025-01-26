@@ -1,6 +1,7 @@
 import * as H from "../hir";
 import { print } from "../hir-printer";
 import { colorize } from "./colors";
+import { Op } from "../bytecode/bytecode";
 
 export type BlockId = number;
 
@@ -17,6 +18,7 @@ export interface BasicBlock {
     terminator: Terminator;
     isEntry?: boolean;
     isExit?: boolean;
+    bytecode: Op[];
 }
 
 export type Terminator =
